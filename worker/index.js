@@ -179,9 +179,8 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
   // Layer 1: 공통 유저 프로필 (모든 캐릭터가 공유)
   const profileSection = [
     `## 대화 상대: ${userName}`,
-    profile.personality      ? `성격: ${profile.personality}` : "",
-    profile.investment_style ? `투자 성향: ${profile.investment_style}` : "",
-    profile.lifestyle        ? `생활 패턴: ${profile.lifestyle}` : "",
+    profile.personality      ? `${profile.personality}` : "",
+    profile.investment_style ? `[투자 성향] ${profile.investment_style}` : "",
   ].filter(Boolean).join("\n");
 
   // Layer 2: 이 캐릭터와의 개별 장기 기억

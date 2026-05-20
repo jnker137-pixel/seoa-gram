@@ -58,7 +58,7 @@ export default function UserProfileEditor({ onClose }: Props) {
         </div>
 
         <p className="text-xs text-gray-400">
-          모든 캐릭터가 공통으로 참고하는 정보야. 캐릭터별 대화 경험은 자동으로 쌓여.
+          모든 캐릭터가 공통으로 참고해. 캐릭터별 대화 기억은 자동으로 쌓여.
         </p>
 
         <div className="space-y-4">
@@ -72,10 +72,11 @@ export default function UserProfileEditor({ onClose }: Props) {
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">성격 / 특징</label>
+            <label className="text-xs text-gray-400 mb-1 block">나에 대해</label>
+            <p className="text-xs text-gray-500 mb-1">성격, 소통 방식, 관심사, 감정 패턴 등 캐릭터들이 알았으면 하는 것</p>
             <textarea
-              rows={3}
-              placeholder="예: 겉보다 속이 복잡함. 이해받는 것보다 이해하는 게 익숙함..."
+              rows={5}
+              placeholder="예: 겉보다 속이 복잡함. 허전함이 기본값. 이해받는 것보다 이해하는 게 익숙함. 깊은 대화 좋아함. 반말 편함. AI·주식·덕질에 관심 많음..."
               className="w-full bg-gray-800 rounded-xl px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
               value={profile.personality ?? ''}
               onChange={(e) => setProfile((p) => ({ ...p, personality: e.target.value || null }))}
@@ -83,24 +84,13 @@ export default function UserProfileEditor({ onClose }: Props) {
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">투자 성향</label>
+            <label className="text-xs text-gray-400 mb-1 block">투자 성향 <span className="text-gray-600">(서아·서아스윙 참고)</span></label>
             <textarea
               rows={2}
-              placeholder="예: 장기 ETF 보유, 배당 중시, 손실 포지션 원금 회복 후 정리..."
+              placeholder="예: 장기 ETF 보유, 배당 중시, 손실 포지션 원금 회복 후 정리, 수익 목표는 예금 금리 이상..."
               className="w-full bg-gray-800 rounded-xl px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
               value={profile.investment_style ?? ''}
               onChange={(e) => setProfile((p) => ({ ...p, investment_style: e.target.value || null }))}
-            />
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">생활 패턴 (선택)</label>
-            <textarea
-              rows={2}
-              placeholder="예: 늦게 자는 편, 퇴근 후 주식 체크, 주말엔 덕질..."
-              className="w-full bg-gray-800 rounded-xl px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-              value={profile.lifestyle ?? ''}
-              onChange={(e) => setProfile((p) => ({ ...p, lifestyle: e.target.value || null }))}
             />
           </div>
         </div>
