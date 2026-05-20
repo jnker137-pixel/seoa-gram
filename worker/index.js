@@ -110,9 +110,44 @@ async function handleChatEndpoint(request, env) {
 
 // ── 범용 캐릭터: Supabase에서 설정 읽고 Claude/Gemini 호출 ──────────────────
 
+async function embedText(text, env) {
+  if (!env.GEMINI_API_KEY) return null;
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${env.GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "models/text-embedding-004", content: { parts: [{ text }] } }),
+    }
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.embedding?.values || null;
+}
+
+async function fetchEpisodicMemories(characterId, queryEmbedding, env) {
+  if (!queryEmbedding) return [];
+  const res = await fetch(
+    `${env.SUPABASE_URL.trim()}/rest/v1/rpc/match_episodic_memories`,
+    {
+      method: "POST",
+      headers: { ...supabaseHeaders(env), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query_embedding: queryEmbedding,
+        character_filter: characterId,
+        match_count: 3,
+        min_similarity: 0.5,
+      }),
+    }
+  );
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
 async function handleGenericCharacter(characterId, text, clientHistory, env) {
-  // 1. 병렬 읽기: 캐릭터 설정 + 장기 기억 + 공통 유저 프로필
-  const [chars, ctxRows, profileRows] = await Promise.all([
+  // 1. 병렬 읽기: 캐릭터 설정 + 장기 기억 + 공통 유저 프로필 + 쿼리 임베딩
+  const [chars, ctxRows, profileRows, queryEmbedding] = await Promise.all([
     fetch(
       `${env.SUPABASE_URL.trim()}/rest/v1/characters?id=eq.${encodeURIComponent(characterId)}&select=*&limit=1`,
       { headers: supabaseHeaders(env) }
@@ -125,6 +160,7 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
       `${env.SUPABASE_URL.trim()}/rest/v1/user_profile?id=eq.seongmin&limit=1`,
       { headers: supabaseHeaders(env) }
     ).then(r => r.json()),
+    embedText(text, env),
   ]);
 
   if (!Array.isArray(chars) || chars.length === 0) {
@@ -133,6 +169,9 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
   const character = chars[0];
   const ctx = Array.isArray(ctxRows) ? (ctxRows[0] || {}) : {};
   const profile = Array.isArray(profileRows) ? (profileRows[0] || {}) : {};
+
+  // 2. 에피소드 벡터 검색 (임베딩 성공했을 때만)
+  const episodes = await fetchEpisodicMemories(characterId, queryEmbedding, env);
 
   const today = new Date().toISOString().split("T")[0];
   const userName = profile.name || "성민";
@@ -152,6 +191,11 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
     ctx.mood                 ? `[현재 기분] ${ctx.mood}` : "",
   ].filter(Boolean);
 
+  // Layer 2.5: 연관 에피소드 (벡터 검색 결과)
+  const episodeLines = episodes.map(ep =>
+    `• [${ep.emotional_weight}] ${ep.title}: ${ep.summary}`
+  );
+
   const rawPrompt = (character.system_prompt || "")
     .replace(/\{\{user\}\}/gi, userName)
     .replace(/\{\{char\}\}/gi, character.name);
@@ -161,6 +205,7 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
     `오늘 날짜: ${today}`,
     `\n${profileSection}`,
     memLines.length > 0 ? `\n## 장기 기억\n${memLines.join("\n")}` : "",
+    episodeLines.length > 0 ? `\n## 떠오르는 기억 (지금 대화와 연관)\n${episodeLines.join("\n")}` : "",
   ].filter(Boolean).join("\n");
 
   // Layer 3: 최근 대화 (클라이언트 전달, 최근 12개)
