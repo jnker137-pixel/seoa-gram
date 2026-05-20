@@ -314,12 +314,12 @@ export default function CharacterEditor({
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
-                  {p === 'claude' ? 'Claude' : 'Gemini'}
+                  {({'claude':'Claude','gemini':'Gemini','deepseek':'DeepSeek','grok':'Grok','openai':'OpenAI'} as Record<string,string>)[p] ?? p}
                 </button>
               ))}
             </div>
             <p className="text-xs text-gray-400 mt-1.5">
-              Claude · Gemini 모두 Worker를 통해 실행돼요 — 대화 기억 + 웹 검색 자동 포함.
+              Claude · Gemini는 웹 검색 자동 포함. DeepSeek · Grok · OpenAI는 API 키 등록 후 사용 가능.
             </p>
           </div>
 
