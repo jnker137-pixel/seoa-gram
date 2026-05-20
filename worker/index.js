@@ -173,10 +173,37 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
   ];
 
   const provider = character.api_provider || "claude";
+  const model = character.model;
+
   if (provider === "gemini") {
-    return callGemini(character.model || "gemini-3-flash-preview", systemPrompt, messages, env);
+    return callGemini(model || "gemini-3-flash-preview", systemPrompt, messages, env);
   }
-  return callClaude(character.model || "claude-sonnet-4-6", systemPrompt, messages, env, true);
+  if (provider === "deepseek") {
+    return callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, systemPrompt, messages);
+  }
+  if (provider === "grok") {
+    return callOpenAICompatible("https://api.x.ai/v1/chat/completions", model || "grok-4.3", env.GROK_API_KEY, systemPrompt, messages);
+  }
+  if (provider === "openai") {
+    return callOpenAICompatible("https://api.openai.com/v1/chat/completions", model || "gpt-5.5", env.OPENAI_API_KEY, systemPrompt, messages);
+  }
+  return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, true);
+}
+
+async function callOpenAICompatible(baseUrl, model, apiKey, systemPrompt, messages) {
+  if (!apiKey) throw new Error(`API 키 미설정 — ${baseUrl.split("/")[2]}`);
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      messages: [{ role: "system", content: systemPrompt }, ...messages]
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(`${baseUrl.split("/")[2]}: ${data.error.message}`);
+  return data.choices?.[0]?.message?.content || "응답 없음";
 }
 
 async function callClaude(model, systemPrompt, messages, env, useWebSearch = false) {

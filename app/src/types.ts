@@ -1,4 +1,4 @@
-export type ApiProvider = 'seoa-worker' | 'claude' | 'gemini';
+export type ApiProvider = 'seoa-worker' | 'claude' | 'gemini' | 'deepseek' | 'grok' | 'openai';
 
 export interface Character {
   id: string;
