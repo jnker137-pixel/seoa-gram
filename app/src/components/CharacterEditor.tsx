@@ -17,7 +17,7 @@ const DEFAULT_MODELS: Record<ApiProvider, string> = {
   gemini: 'gemini-3-flash-preview',
   deepseek: 'deepseek-v4-flash',
   grok: 'grok-4.3',
-  openai: 'gpt-5.5',
+  openai: 'gpt-5.4-mini',
 };
 
 const MODEL_OPTIONS: Record<string, string[]> = {
