@@ -1,0 +1,26 @@
+name: 컴패니언 캐릭터 기억 정리 (23:45 KST)
+
+on:
+  schedule:
+    - cron: '45 14 * * *'  # UTC 14:45 = KST 23:45
+  workflow_dispatch:
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 패키지 설치
+        run: pip install requests
+
+      - name: 기억 정리 실행
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: "https://uxiymaeobmleshekvqvl.supabase.co"
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scheduler/consolidate_memory_companions.py

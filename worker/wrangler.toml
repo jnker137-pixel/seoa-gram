@@ -1,0 +1,4 @@
+name = "seongmin-bot"
+main = "index.js"
+compatibility_date = "2024-01-01"
+account_id = "1b249037630288c305f84a362c577891"
