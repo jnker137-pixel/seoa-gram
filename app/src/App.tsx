@@ -33,7 +33,7 @@ export default function App() {
     const perm = Notification.permission as 'default' | 'granted' | 'denied';
     setNotifStatus(perm);
     if (perm === 'granted') {
-      subscribeToPush('companions-seongmin')
+      subscribeToPush('seoa-gram-seongmin')
         .then(() => setNotifDone(true))
         .catch((e) => setNotifError(String(e)));
     }
@@ -42,7 +42,7 @@ export default function App() {
   const handleEnableNotifications = async () => {
     setNotifError(null);
     try {
-      await subscribeToPush('companions-seongmin');
+      await subscribeToPush('seoa-gram-seongmin');
       setNotifStatus('granted');
       setNotifDone(true);
     } catch (e) {
