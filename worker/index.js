@@ -110,6 +110,19 @@ async function handleChatEndpoint(request, env) {
 
 // ── 범용 캐릭터: Supabase에서 설정 읽고 Claude/Gemini 호출 ──────────────────
 
+async function fetchSwingHistoryForChar(env) {
+  try {
+    const res = await fetch(
+      "https://api.github.com/repos/jnker137-pixel/prism-battle/contents/outputs/swing_history.json",
+      { headers: { "Authorization": `token ${env.GITHUB_TOKEN}`, "Accept": "application/vnd.github.v3.raw" } }
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 async function embedText(text, env) {
   if (!env.GEMINI_API_KEY) return null;
   const res = await fetch(
@@ -146,8 +159,8 @@ async function fetchEpisodicMemories(characterId, queryEmbedding, env) {
 }
 
 async function handleGenericCharacter(characterId, text, clientHistory, env) {
-  // 1. 병렬 읽기: 캐릭터 설정 + 장기 기억 + 공통 유저 프로필 + 쿼리 임베딩
-  const [chars, ctxRows, profileRows, queryEmbedding] = await Promise.all([
+  // 1. 병렬 읽기: 캐릭터 설정 + 장기 기억 + 공통 유저 프로필 + 쿼리 임베딩 + (세아) 스윙 포트
+  const [chars, ctxRows, profileRows, queryEmbedding, swingHistory] = await Promise.all([
     fetch(
       `${env.SUPABASE_URL.trim()}/rest/v1/characters?id=eq.${encodeURIComponent(characterId)}&select=*&limit=1`,
       { headers: supabaseHeaders(env) }
@@ -161,6 +174,7 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
       { headers: supabaseHeaders(env) }
     ).then(r => r.json()),
     embedText(text, env),
+    characterId === "seoa-swing" ? fetchSwingHistoryForChar(env) : Promise.resolve(null),
   ]);
 
   if (!Array.isArray(chars) || chars.length === 0) {
@@ -199,12 +213,15 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
     .replace(/\{\{user\}\}/gi, userName)
     .replace(/\{\{char\}\}/gi, character.name);
 
+  const swingBlock = swingHistory ? `\n## 내 스윙 포트 현황 (실시간)\n${formatSwingBlock(swingHistory)}` : "";
+
   const systemPrompt = [
     rawPrompt,
     `오늘 날짜: ${today}`,
     `\n${profileSection}`,
     memLines.length > 0 ? `\n## 장기 기억\n${memLines.join("\n")}` : "",
     episodeLines.length > 0 ? `\n## 떠오르는 기억 (지금 대화와 연관)\n${episodeLines.join("\n")}` : "",
+    swingBlock,
   ].filter(Boolean).join("\n");
 
   // Layer 3: 최근 대화 (클라이언트 전달, 최근 12개)
