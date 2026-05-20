@@ -130,9 +130,9 @@ export default function ChatView({
               key={msg.id ?? idx}
               className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
             >
-              <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[80%]`}>
+              <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[92%]`}>
                 <div
-                  className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                  className={`px-4 py-2.5 rounded-2xl text-base leading-relaxed whitespace-pre-wrap break-words ${
                     isUser
                       ? 'text-white rounded-br-sm'
                       : 'bg-white text-gray-800 rounded-bl-sm border border-gray-100 shadow-sm'
@@ -180,7 +180,7 @@ export default function ChatView({
             onKeyDown={handleKeyDown}
             placeholder={`${character.name}에게 메시지 보내기...`}
             rows={1}
-            className="flex-1 bg-transparent resize-none outline-none text-sm text-gray-800 placeholder-gray-400 max-h-32 py-1.5"
+            className="flex-1 bg-transparent resize-none outline-none text-base text-gray-800 placeholder-gray-400 max-h-32 py-1.5"
             style={{ lineHeight: '1.5' }}
             onInput={(e) => {
               const el = e.currentTarget;
