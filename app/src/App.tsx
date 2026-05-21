@@ -29,7 +29,7 @@ function resolveActiveId(chars: Character[]): string | null {
 function Splash({ character, visible }: { character: Character | null; visible: boolean }) {
   return (
     <div
-      className="fixed inset-0 z-50 pointer-events-none transition-opacity duration-500"
+      className="fixed inset-0 z-50 pointer-events-none transition-opacity duration-700"
       style={{ opacity: visible ? 1 : 0 }}
     >
       {/* 배경: 아바타 있으면 이미지, 없으면 컬러 그라디언트 */}
@@ -62,29 +62,52 @@ function Splash({ character, visible }: { character: Character | null; visible: 
 }
 
 export default function App() {
-  const [characters, setCharacters] = useState<Character[]>([]);
-  // localStorage에서 즉시 복원 — 캐릭터 로드 전에도 마지막 선택 유지
+  // 첫 렌더부터 캐시 데이터로 시작 (useEffect 기다리지 않음)
+  const [characters, setCharacters] = useState<Character[]>(() => {
+    try {
+      const raw = localStorage.getItem(CACHE_CHARS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
   const [activeId, setActiveId] = useState<string | null>(
     () => localStorage.getItem('companions_last_char')
   );
-  const [messagesByChar, setMessagesByChar] = useState<Record<string, Message[]>>({});
-  const [loadingChars, setLoadingChars] = useState(true);
+  const [messagesByChar, setMessagesByChar] = useState<Record<string, Message[]>>(() => {
+    try {
+      const raw = localStorage.getItem(CACHE_CHARS_KEY);
+      const chars: Character[] = raw ? JSON.parse(raw) : [];
+      const msgs: Record<string, Message[]> = {};
+      for (const c of chars) {
+        const m = localStorage.getItem(cacheMsgsKey(c.id));
+        if (m) msgs[c.id] = JSON.parse(m);
+      }
+      return msgs;
+    } catch { return {}; }
+  });
+  const [loadingChars, setLoadingChars] = useState(
+    () => !localStorage.getItem(CACHE_CHARS_KEY)
+  );
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingChar, setEditingChar] = useState<Character | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  // 모바일은 사이드바 닫힌 채로 시작 (채팅창 바로 표시)
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [notifStatus, setNotifStatus] = useState<'default' | 'granted' | 'denied'>('default');
   const [notifError, setNotifError] = useState<string | null>(null);
   const [splashVisible, setSplashVisible] = useState(true);
 
-  // 스플래시: 600ms 표시 후 페이드아웃
+  // 스플래시: 메시지 준비되면 페이드 (최소 700ms, 최대 2500ms)
   useEffect(() => {
-    const t = setTimeout(() => setSplashVisible(false), 600);
-    return () => clearTimeout(t);
+    const maxTimer = setTimeout(() => setSplashVisible(false), 2500);
+    return () => clearTimeout(maxTimer);
   }, []);
 
-  // 알림 권한 상태 확인 + 이미 granted면 자동 구독 시도
+  useEffect(() => {
+    if (!activeId || !messagesByChar[activeId]) return;
+    const t = setTimeout(() => setSplashVisible(false), 700);
+    return () => clearTimeout(t);
+  }, [activeId, messagesByChar]);
+
+  // 알림 권한 상태 확인
   useEffect(() => {
     if (!('Notification' in window)) return;
     const perm = Notification.permission as 'default' | 'granted' | 'denied';
@@ -104,29 +127,8 @@ export default function App() {
     }
   };
 
-  // 마운트: 캐시 즉시 렌더 → Supabase 백그라운드 갱신
+  // Supabase 백그라운드 갱신 (캐시는 useState 초기값에서 이미 로드됨)
   useEffect(() => {
-    // 1. localStorage 캐시 즉시 표시 (로딩 없음)
-    const raw = localStorage.getItem(CACHE_CHARS_KEY);
-    if (raw) {
-      try {
-        const cached: Character[] = JSON.parse(raw);
-        if (cached.length > 0) {
-          setCharacters(cached);
-          // localStorage에서 복원한 activeId 유지, 없을 때만 새로 결정
-          setActiveId((prev) => prev || resolveActiveId(cached));
-          const msgs: Record<string, Message[]> = {};
-          for (const c of cached) {
-            const m = localStorage.getItem(cacheMsgsKey(c.id));
-            if (m) msgs[c.id] = JSON.parse(m);
-          }
-          setMessagesByChar(msgs);
-          setLoadingChars(false);
-        }
-      } catch {}
-    }
-
-    // 2. Supabase에서 최신 데이터 백그라운드 갱신
     fetchCharacters()
       .then((chars) => {
         setCharacters(chars);
