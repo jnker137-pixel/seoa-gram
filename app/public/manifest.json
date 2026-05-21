@@ -1,0 +1,19 @@
+{
+  "name": "seoa-gram",
+  "short_name": "seoa-gram",
+  "description": "AI 컴패니언 앱",
+  "start_url": "/seoa-gram/",
+  "scope": "/seoa-gram/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/seoa-gram/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
