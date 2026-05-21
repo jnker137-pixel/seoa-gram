@@ -1095,8 +1095,8 @@ async function handleGroupChatEndpoint(request, env) {
 
     const characters = Array.isArray(charRows) ? charRows : [];
 
-    // 3. 유저 메시지 저장 (fire & forget)
-    fetch(`${env.SUPABASE_URL.trim()}/rest/v1/group_messages`, {
+    // 3. 유저 메시지 저장
+    await fetch(`${env.SUPABASE_URL.trim()}/rest/v1/group_messages`, {
       method: "POST",
       headers: { ...supabaseHeaders(env), Prefer: "return=minimal" },
       body: JSON.stringify({ room_id: roomId, character_id: "user", character_name: userName, content: text })
@@ -1119,17 +1119,19 @@ async function handleGroupChatEndpoint(request, env) {
     const responses = settled.filter(r => r.status === "fulfilled").map(r => r.value);
     const activeParticipantIds = characters.map(c => c.id);
 
-    // 6. 응답 저장 + Room State 업데이트 (fire & forget)
-    Promise.all([
-      ...responses.map(r =>
+    // 6. 응답 저장 (await — fire-and-forget은 Cloudflare가 응답 후 즉시 kill함)
+    await Promise.all(
+      responses.map(r =>
         fetch(`${env.SUPABASE_URL.trim()}/rest/v1/group_messages`, {
           method: "POST",
           headers: { ...supabaseHeaders(env), Prefer: "return=minimal" },
           body: JSON.stringify({ room_id: roomId, character_id: r.character_id, character_name: r.name, content: r.reply })
         })
-      ),
-      updateGroupRoomState(roomId, roomState, text, responses, env)
-    ]).catch(() => {});
+      )
+    ).catch(() => {});
+
+    // 7. Room State 업데이트 (Haiku, max_tokens 200이라 빠름)
+    await updateGroupRoomState(roomId, roomState, text, responses, env);
 
     return new Response(JSON.stringify({ responses, participant_ids: activeParticipantIds }), { headers: jsonHeaders });
   } catch (e) {
@@ -1157,7 +1159,8 @@ function buildGroupContextBlock(roomState, recentMsgs, userName) {
 async function callCharacterForGroup(char, userMessage, groupCtx, userName, env) {
   const messages = [{ role: "user", content: userMessage }];
   const provider = char.api_provider || "claude";
-  const model = char.model;
+  // seoa-worker는 model 컬럼이 캐릭터 id로 저장돼 있을 수 있어서 강제 지정
+  const model = provider === "seoa-worker" ? "claude-sonnet-4-6" : char.model;
 
   // seoa-worker는 그룹챗에서 tool_use 없는 경량 프롬프트 사용 (DB 시스템프롬프트엔 tool 참조 있어서 text 응답 안 나옴)
   const basePrompt = provider === "seoa-worker"
