@@ -64,7 +64,7 @@ async function sendToWorker(
 export async function sendGroupMessage(
   roomId: string,
   message: string
-): Promise<GroupResponse[]> {
+): Promise<{ responses: GroupResponse[]; participantIds: string[] }> {
   const res = await fetch(`${WORKER_URL}/group-chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -74,7 +74,7 @@ export async function sendGroupMessage(
     const text = await res.text().catch(() => `HTTP ${res.status}`);
     throw new Error(`Worker error: ${text}`);
   }
-  const data = await res.json() as { responses?: GroupResponse[]; error?: string };
+  const data = await res.json() as { responses?: GroupResponse[]; participant_ids?: string[]; error?: string };
   if (data.error) throw new Error(data.error);
-  return data.responses ?? [];
+  return { responses: data.responses ?? [], participantIds: data.participant_ids ?? [] };
 }

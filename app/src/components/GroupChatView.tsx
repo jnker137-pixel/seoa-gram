@@ -17,10 +17,6 @@ function formatTime(ts: string | undefined): string {
   return `${h}:${mi}`;
 }
 
-function getInitials(name: string): string {
-  return name.slice(0, 1).toUpperCase();
-}
-
 function CharAvatar({ character, size = 'md' }: { character: Character; size?: 'sm' | 'md' }) {
   const dim = size === 'sm' ? 'w-6 h-6 text-[10px]' : 'w-8 h-8 text-xs';
   return (
@@ -31,7 +27,7 @@ function CharAvatar({ character, size = 'md' }: { character: Character; size?: '
       {character.avatar_url ? (
         <img src={character.avatar_url} alt={character.name} className="w-full h-full object-cover" />
       ) : (
-        <span className="text-white">{getInitials(character.name)}</span>
+        <span className="text-white">{character.name.slice(0, 1).toUpperCase()}</span>
       )}
     </div>
   );
@@ -41,13 +37,17 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // Worker가 반환한 실제 방 참여자 ID (초기엔 harin 제외 전체)
+  const [roomParticipantIds, setRoomParticipantIds] = useState<string[]>(
+    characters.filter(c => c.id !== 'harin').map(c => c.id)
+  );
   const [typingIds, setTypingIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const participants = characters.filter(c => c.id !== 'harin');
   const charById = Object.fromEntries(characters.map(c => [c.id, c]));
+  const participants = roomParticipantIds.map(id => charById[id]).filter(Boolean) as Character[];
 
   useEffect(() => {
     fetchGroupMessages(roomId)
@@ -74,13 +74,17 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMsg]);
-    setTypingIds(participants.map(c => c.id));
+    // 현재 알고 있는 참여자 전원 타이핑 표시
+    setTypingIds(roomParticipantIds);
     setIsLoading(true);
 
     try {
-      const responses = await sendGroupMessage(roomId, text);
+      const { responses, participantIds } = await sendGroupMessage(roomId, text);
 
-      // 짧은 응답부터 먼저 표시 (빠른 모델 느낌)
+      // Worker가 반환한 실제 참여자 목록으로 업데이트
+      if (participantIds.length > 0) setRoomParticipantIds(participantIds);
+
+      // 짧은 응답부터 순서대로 표시 (빠른 모델 느낌)
       const sorted = [...responses].sort((a, b) => a.reply.length - b.reply.length);
 
       for (let i = 0; i < sorted.length; i++) {
@@ -97,7 +101,6 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : '오류가 발생했어요');
-      setTypingIds([]);
     } finally {
       setIsLoading(false);
       setTypingIds([]);
@@ -113,14 +116,15 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-gray-50">
+    // h-[100dvh] 대신 부모 flex 컨텍스트를 채우도록 (App main이 flex-1 flex-col)
+    <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
       {/* Header */}
-      <header className="relative h-36 flex-shrink-0 overflow-hidden bg-gray-900">
+      <header className="relative flex-shrink-0 overflow-hidden bg-gray-900" style={{ height: '144px' }}>
         <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900" />
         <div className="absolute bottom-0 left-0 right-0 px-5 pb-4">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-1 mb-2">
             {participants.map((char, i) => (
-              <div key={char.id} style={{ marginLeft: i > 0 ? '-8px' : 0, zIndex: participants.length - i }} className="relative">
+              <div key={char.id} style={{ marginLeft: i > 0 ? '-6px' : 0, zIndex: participants.length - i }} className="relative">
                 <CharAvatar character={char} size="sm" />
               </div>
             ))}
@@ -133,7 +137,7 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-2">
         {messages.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm gap-1">
             <p className="font-medium text-gray-500">단체 대화방</p>
@@ -181,7 +185,7 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
           );
         })}
 
-        {/* 타이핑 인디케이터 */}
+        {/* 타이핑 인디케이터: 실제 참여자만 */}
         {typingIds.map(charId => {
           const char = charById[charId];
           if (!char) return null;
@@ -212,7 +216,7 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
       </div>
 
       {/* Input */}
-      <div className="px-4 py-4 bg-white border-t border-gray-200">
+      <div className="flex-shrink-0 px-4 py-4 bg-white border-t border-gray-200">
         <div className="flex items-end gap-2 bg-gray-50 rounded-2xl border border-gray-200 px-4 py-2 focus-within:border-gray-400 transition-colors">
           <textarea
             ref={textareaRef}

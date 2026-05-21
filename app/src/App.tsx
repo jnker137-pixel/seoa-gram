@@ -322,7 +322,7 @@ export default function App() {
       </div>
 
       {/* Main area */}
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {activeId === GROUP_ID ? (
           <GroupChatView characters={characters} roomId="main" />
         ) : activeCharacter ? (

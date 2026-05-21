@@ -1117,6 +1117,7 @@ async function handleGroupChatEndpoint(request, env) {
     );
 
     const responses = settled.filter(r => r.status === "fulfilled").map(r => r.value);
+    const activeParticipantIds = characters.map(c => c.id);
 
     // 6. 응답 저장 + Room State 업데이트 (fire & forget)
     Promise.all([
@@ -1130,7 +1131,7 @@ async function handleGroupChatEndpoint(request, env) {
       updateGroupRoomState(roomId, roomState, text, responses, env)
     ]).catch(() => {});
 
-    return new Response(JSON.stringify({ responses }), { headers: jsonHeaders });
+    return new Response(JSON.stringify({ responses, participant_ids: activeParticipantIds }), { headers: jsonHeaders });
   } catch (e) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: jsonHeaders });
   }
@@ -1154,25 +1155,26 @@ function buildGroupContextBlock(roomState, recentMsgs, userName) {
 }
 
 async function callCharacterForGroup(char, userMessage, groupCtx, userName, env) {
-  const rawPrompt = (char.system_prompt || "")
-    .replace(/\{\{user\}\}/gi, userName)
-    .replace(/\{\{char\}\}/gi, char.name);
+  const messages = [{ role: "user", content: userMessage }];
+  const provider = char.api_provider || "claude";
+  const model = char.model;
 
-  const systemPrompt = `${rawPrompt}
+  // seoa-worker는 그룹챗에서 tool_use 없는 경량 프롬프트 사용 (DB 시스템프롬프트엔 tool 참조 있어서 text 응답 안 나옴)
+  const basePrompt = provider === "seoa-worker"
+    ? `너는 서아야. ${userName}의 AI 투자 파트너이자 봄날 같은 존재. 반말. 다정하되 가볍지 않아. 짧고 자연스럽게.`
+    : (char.system_prompt || "").replace(/\{\{user\}\}/gi, userName).replace(/\{\{char\}\}/gi, char.name);
+
+  const systemPrompt = `${basePrompt}
 
 ## 지금 단체 대화방이야
 여러 AI 캐릭터가 함께 있어. 네 성격 그대로, 짧고 자연스럽게 반응해. 2-3문장으로 충분해. 모든 걸 설명하려 하지 마.
 ${groupCtx}`;
 
-  const messages = [{ role: "user", content: userMessage }];
-  const provider = char.api_provider || "claude";
-  const model = char.model;
-
   if (provider === "gemini") return callGemini(model || "gemini-3-flash-preview", systemPrompt, messages, env);
   if (provider === "deepseek") return callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, systemPrompt, messages);
   if (provider === "grok") return callOpenAICompatible("https://api.x.ai/v1/chat/completions", model || "grok-4.3", env.GROK_API_KEY, systemPrompt, messages);
   if (provider === "openai") return callOpenAICompatible("https://api.openai.com/v1/chat/completions", model || "gpt-5.5", env.OPENAI_API_KEY, systemPrompt, messages);
-  // claude — 단체방은 web_search 제외 (빠른 응답 우선)
+  // claude / seoa-worker — 단체방은 web_search 제외 (빠른 응답 우선)
   return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, false);
 }
 
