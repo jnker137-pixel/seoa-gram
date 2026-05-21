@@ -26,6 +26,41 @@ function resolveActiveId(chars: Character[]): string | null {
   return chars[0]?.id ?? null;
 }
 
+function Splash({ character, visible }: { character: Character | null; visible: boolean }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 pointer-events-none transition-opacity duration-500"
+      style={{ opacity: visible ? 1 : 0 }}
+    >
+      {/* 배경: 아바타 있으면 이미지, 없으면 컬러 그라디언트 */}
+      {character?.avatar_url ? (
+        <img
+          src={character.avatar_url}
+          alt={character.name}
+          className="absolute inset-0 w-full h-full object-cover object-top"
+        />
+      ) : (
+        <div
+          className="absolute inset-0"
+          style={{
+            background: `linear-gradient(160deg, ${character?.color || '#6366f1'}dd, ${character?.color || '#6366f1'}55)`
+          }}
+        >
+          <span className="absolute bottom-32 left-8 text-[12rem] font-black text-white/10 select-none leading-none">
+            {character?.name?.slice(0, 1) ?? ''}
+          </span>
+        </div>
+      )}
+      {/* 하단 페이드 + 이름 */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/80" />
+      <div className="absolute bottom-16 left-0 right-0 px-8">
+        <p className="text-white/50 text-sm mb-1">seoa-gram</p>
+        <h1 className="text-white text-4xl font-bold drop-shadow-lg">{character?.name ?? ''}</h1>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [characters, setCharacters] = useState<Character[]>([]);
   // localStorage에서 즉시 복원 — 캐릭터 로드 전에도 마지막 선택 유지
@@ -41,7 +76,13 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [notifStatus, setNotifStatus] = useState<'default' | 'granted' | 'denied'>('default');
   const [notifError, setNotifError] = useState<string | null>(null);
-  const [notifDone, setNotifDone] = useState(false);
+  const [splashVisible, setSplashVisible] = useState(true);
+
+  // 스플래시: 600ms 표시 후 페이드아웃
+  useEffect(() => {
+    const t = setTimeout(() => setSplashVisible(false), 600);
+    return () => clearTimeout(t);
+  }, []);
 
   // 알림 권한 상태 확인 + 이미 granted면 자동 구독 시도
   useEffect(() => {
@@ -49,9 +90,7 @@ export default function App() {
     const perm = Notification.permission as 'default' | 'granted' | 'denied';
     setNotifStatus(perm);
     if (perm === 'granted') {
-      subscribeToPush('seoa-gram-seongmin')
-        .then(() => setNotifDone(true))
-        .catch((e) => setNotifError(String(e)));
+      subscribeToPush('seoa-gram-seongmin').catch((e) => setNotifError(String(e)));
     }
   }, []);
 
@@ -60,7 +99,6 @@ export default function App() {
     try {
       await subscribeToPush('seoa-gram-seongmin');
       setNotifStatus('granted');
-      setNotifDone(true);
     } catch (e) {
       setNotifError(String(e));
     }
@@ -199,7 +237,10 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
-      {/* 알림 배너 */}
+      {/* 스플래시 */}
+      <Splash character={activeCharacter} visible={splashVisible} />
+
+      {/* 알림 배너 (오류 or 최초 권한 요청만) */}
       {notifError && (
         <div className="flex items-center justify-between px-4 py-2 bg-red-600 text-white text-xs shrink-0">
           <span className="truncate">⚠️ {notifError}</span>
@@ -208,12 +249,7 @@ export default function App() {
           </button>
         </div>
       )}
-      {!notifError && notifDone && (
-        <div className="px-4 py-1 bg-green-600 text-white text-xs shrink-0 text-center">
-          ✅ 알림 구독 완료
-        </div>
-      )}
-      {!notifError && !notifDone && notifStatus === 'default' && (
+      {!notifError && notifStatus === 'default' && (
         <div className="flex items-center justify-between px-4 py-2 bg-indigo-600 text-white text-sm shrink-0">
           <span>브리핑 알림을 받으려면 알림을 허용해줘</span>
           <button onClick={handleEnableNotifications} className="ml-4 px-3 py-1 bg-white text-indigo-600 rounded-lg font-medium text-xs">
