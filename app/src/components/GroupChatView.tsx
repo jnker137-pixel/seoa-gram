@@ -55,7 +55,7 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
       supabase.from('group_rooms').select('participant_ids').eq('id', roomId).single(),
     ]).then(([msgs, { data }]) => {
       setMessages(msgs);
-      if (data?.participant_ids?.length > 0) setRoomParticipantIds(data.participant_ids);
+      if (data && data.participant_ids?.length) setRoomParticipantIds(data.participant_ids);
     }).catch((e) => setError(String(e)));
   }, [roomId]);
 
