@@ -2,6 +2,16 @@ import type { Character, Message } from '../types';
 
 const WORKER_URL = 'https://seongmin-bot.jnkre137.workers.dev';
 
+function toKSTLabel(utcStr: string): string {
+  const kst = new Date(new Date(utcStr).getTime() + 9 * 60 * 60 * 1000);
+  const y = kst.getUTCFullYear();
+  const mo = kst.getUTCMonth() + 1;
+  const d = kst.getUTCDate();
+  const h = String(kst.getUTCHours()).padStart(2, '0');
+  const mi = String(kst.getUTCMinutes()).padStart(2, '0');
+  return `${y}.${mo}.${d}. ${h}:${mi}`;
+}
+
 export async function sendMessage(
   character: Character,
   userMessage: string,
@@ -31,7 +41,7 @@ async function sendToWorker(
   if (characterId !== 'seoa' && history && history.length > 1) {
     body.history = history.slice(0, -1).slice(-20).map((m) => ({
       role: m.role,
-      content: m.content,
+      content: m.created_at ? `[${toKSTLabel(m.created_at)}] ${m.content}` : m.content,
     }));
   }
 

@@ -12,8 +12,13 @@ interface ChatViewProps {
 
 function formatTime(ts: string | undefined): string {
   if (!ts) return '';
-  const d = new Date(ts);
-  return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  const kst = new Date(new Date(ts).getTime() + 9 * 60 * 60 * 1000);
+  const y = kst.getUTCFullYear();
+  const mo = kst.getUTCMonth() + 1;
+  const d = kst.getUTCDate();
+  const h = String(kst.getUTCHours()).padStart(2, '0');
+  const mi = String(kst.getUTCMinutes()).padStart(2, '0');
+  return `${y}.${mo}.${d}. ${h}:${mi}`;
 }
 
 export default function ChatView({
