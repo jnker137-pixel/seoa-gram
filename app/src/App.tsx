@@ -113,7 +113,8 @@ export default function App() {
         const cached: Character[] = JSON.parse(raw);
         if (cached.length > 0) {
           setCharacters(cached);
-          setActiveId(resolveActiveId(cached));
+          // localStorage에서 복원한 activeId 유지, 없을 때만 새로 결정
+          setActiveId((prev) => prev || resolveActiveId(cached));
           const msgs: Record<string, Message[]> = {};
           for (const c of cached) {
             const m = localStorage.getItem(cacheMsgsKey(c.id));
