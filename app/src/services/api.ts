@@ -1,4 +1,4 @@
-import type { Character, Message } from '../types';
+import type { Character, Message, GroupResponse } from '../types';
 
 const WORKER_URL = 'https://seongmin-bot.jnkre137.workers.dev';
 
@@ -59,4 +59,22 @@ async function sendToWorker(
   const data = await res.json() as { reply?: string; error?: string };
   if (data.error) throw new Error(data.error);
   return data.reply ?? '';
+}
+
+export async function sendGroupMessage(
+  roomId: string,
+  message: string
+): Promise<GroupResponse[]> {
+  const res = await fetch(`${WORKER_URL}/group-chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, room_id: roomId }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`Worker error: ${text}`);
+  }
+  const data = await res.json() as { responses?: GroupResponse[]; error?: string };
+  if (data.error) throw new Error(data.error);
+  return data.responses ?? [];
 }

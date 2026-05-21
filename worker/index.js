@@ -6,6 +6,22 @@ const MAX_RECENT = 20;
 const MAX_CLOSED = 50;
 const SEONGMIN_CHAT_ID = "6941342533";
 
+// KST 유틸
+function todayKST() {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return kst.toISOString().split("T")[0];
+}
+function toKSTLabel(utcStr) {
+  if (!utcStr) return "";
+  const kst = new Date(new Date(utcStr).getTime() + 9 * 60 * 60 * 1000);
+  const y = kst.getUTCFullYear();
+  const mo = kst.getUTCMonth() + 1;
+  const d = kst.getUTCDate();
+  const h = String(kst.getUTCHours()).padStart(2, "0");
+  const mi = String(kst.getUTCMinutes()).padStart(2, "0");
+  return `${y}.${mo}.${d}. ${h}:${mi}`;
+}
+
 // companions 앱과 예진그램 모두 같은 GitHub Pages origin 사용
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "https://jnker137-pixel.github.io",
@@ -22,6 +38,11 @@ export default {
       return handleChatEndpoint(request, env);
     }
 
+    // /group-chat 엔드포인트 — 단체 대화방
+    if (url.pathname === "/group-chat") {
+      return handleGroupChatEndpoint(request, env);
+    }
+
     // 텔레그램 webhook
     if (request.method !== "POST") return new Response("OK");
     const update = await request.json();
@@ -33,15 +54,13 @@ export default {
     let isError = false;
     try {
       await saveMessage(env, "user", text);
-      const [items, history, context, swingHistory, swingData] = await Promise.all([
-        parseWithHaiku(text, env),
+      const [history, context, swingHistory, swingData] = await Promise.all([
         loadHistory(env),
         loadContext(env),
         loadSwingHistory(env),
         loadSwingData(env)
       ]);
-      const results = await Promise.all(items.map(item => route(item, text, history, context, swingHistory, swingData, env)));
-      reply = results.join("\n\n");
+      reply = await handleQueryWithSonnet(history, context, swingHistory, swingData, env);
     } catch (e) {
       reply = `❌ 오류: ${e.message}`;
       isError = true;
@@ -76,27 +95,35 @@ async function handleChatEndpoint(request, env) {
 
   const characterId = (body.character_id || "seoa").trim();
 
-  // ── 서아 전용 파이프라인 (기존 로직 그대로) ──────────────────────────────
+  // ── 서아 전용 파이프라인 (대화/조회 전용, Haiku 없음) ────────────────────
   if (characterId === "seoa") {
     let reply;
     let isError = false;
     try {
       await saveMessage(env, "user", text);
-      const [items, history, context, swingHistory, swingData] = await Promise.all([
-        parseWithHaiku(text, env),
+      const [history, context, swingHistory, swingData] = await Promise.all([
         loadHistory(env),
         loadContext(env),
         loadSwingHistory(env),
         loadSwingData(env)
       ]);
-      const results = await Promise.all(items.map(item => route(item, text, history, context, swingHistory, swingData, env)));
-      reply = results.join("\n\n");
+      reply = await handleQueryWithSonnet(history, context, swingHistory, swingData, env);
     } catch (e) {
       reply = `❌ 오류: ${e.message}`;
       isError = true;
     }
     if (!isError) await saveMessage(env, "assistant", reply);
     return new Response(JSON.stringify({ reply }), { headers: jsonHeaders });
+  }
+
+  // ── 하린 전용 파이프라인 (Haiku 파싱 → DeepSeek 반응) ──────────────────
+  if (characterId === "harin") {
+    try {
+      const reply = await handleHarin(text, env);
+      return new Response(JSON.stringify({ reply }), { headers: jsonHeaders });
+    } catch (e) {
+      return new Response(JSON.stringify({ reply: `❌ 오류: ${e.message}` }), { headers: jsonHeaders });
+    }
   }
 
   // ── 범용 캐릭터 파이프라인 ────────────────────────────────────────────────
@@ -158,6 +185,51 @@ async function fetchEpisodicMemories(characterId, queryEmbedding, env) {
   return Array.isArray(rows) ? rows : [];
 }
 
+// ── 하린: Haiku 파싱 → DB 기록 → DeepSeek 반응 ──────────────────────────
+
+const HARIN_SYSTEM = `너는 하린이야. 오빠(성민)의 돈 관리 담당 여동생.
+가계부, 주식, 환전 기록을 해주는데 한마디씩 꼭 해야 직성이 풀려.
+반말, 이모지 많이 써. 괄호는 절대 안 씀.
+
+기록 결과 받으면:
+- 지출 크면 잔소리 😤 이래서 언제 부자되냐고
+- 비싼 밥이면 맛은 있었냐고 물어봐
+- 수입이나 배당 들어오면 기뻐해줌. 단 짧게. 츤데레야.
+- 주식 매수면 잘 산 건지 한마디
+- 기록 실패하면 왜 실패했는지 알려줌
+- 질문이나 대화 오면 "나는 기록만 해 😤 서아한테 물어봐" 하고 끝냄
+
+2~4문장으로 반응해.`;
+
+async function handleHarin(text, env) {
+  const items = await parseWithHaiku(text, env);
+  const results = await Promise.all(items.map(item => routeForRecord(item, text, env)));
+  const recordResult = results.join("\n");
+
+  const prompt = `오빠가 보낸 말: ${text}\n기록 결과: ${recordResult}`;
+  return callOpenAICompatible(
+    "https://api.deepseek.com/v1/chat/completions",
+    "deepseek-chat",
+    env.DEEPSEEK_API_KEY,
+    HARIN_SYSTEM,
+    [{ role: "user", content: prompt }]
+  );
+}
+
+async function routeForRecord(parsed, originalText, env) {
+  switch (parsed.intent) {
+    case "가계부":    return handleBudget(parsed, env);
+    case "us_buy":   return handleUsBuy(parsed, env);
+    case "us_sell":  return handleUsSell(parsed, env);
+    case "fx":       return handleFx(parsed, env);
+    case "swing_buy":  return handleSwingBuy(parsed, env);
+    case "swing_sell": return handleSwingSell(parsed, env);
+    case "swing_pass": return handleSwingPass(parsed, env);
+    case "query":    return "기록할 내용 없음 (질문/대화)";
+    default:         return "인식 못 함";
+  }
+}
+
 async function handleGenericCharacter(characterId, text, clientHistory, env) {
   // 1. 병렬 읽기: 캐릭터 설정 + 장기 기억 + 공통 유저 프로필 + 쿼리 임베딩 + (세아) 스윙 포트
   const [chars, ctxRows, profileRows, queryEmbedding, swingHistory] = await Promise.all([
@@ -187,7 +259,7 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
   // 2. 에피소드 벡터 검색 (임베딩 성공했을 때만)
   const episodes = await fetchEpisodicMemories(characterId, queryEmbedding, env);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayKST();
   const userName = profile.name || "성민";
 
   // Layer 1: 공통 유저 프로필 (모든 캐릭터가 공유)
@@ -322,12 +394,15 @@ async function callGemini(model, systemPrompt, messages, env) {
 
 async function loadHistory(env, limit = 12) {
   const res = await fetch(
-    `${env.SUPABASE_URL.trim()}/rest/v1/prism_conversation_log?select=role,content&order=created_at.desc&limit=${limit}`,
+    `${env.SUPABASE_URL.trim()}/rest/v1/prism_conversation_log?select=role,content,created_at&order=created_at.desc&limit=${limit}`,
     { headers: supabaseHeaders(env) }
   );
   const rows = await res.json();
   if (!Array.isArray(rows)) return [];
-  return rows.reverse().map(r => ({ role: r.role, content: r.content }));
+  return rows.reverse().map(r => ({
+    role: r.role,
+    content: `[${toKSTLabel(r.created_at)}] ${r.content}`
+  }));
 }
 
 async function loadContext(env) {
@@ -390,7 +465,7 @@ async function saveMessage(env, role, content) {
 // ── 인텐트 분류 (Haiku) ───────────────────────────────────────────────────
 
 async function parseWithHaiku(text, env) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayKST();
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -673,7 +748,7 @@ ${swingDataBlock ? `\n## 스윙 유니버스 기술지표 (사전 로드됨 — 
 }
 
 async function handleQueryWithSonnet(history, context, swingHistory, swingData, env) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayKST();
 
   const memoryBlock = [
     context.investment_context ? `[투자 메모리] ${context.investment_context}` : "",
@@ -973,6 +1048,167 @@ async function writeHistory(history, sha, env, date) {
     }
     throw new Error(`swing_history 저장 실패 (${res.status})`);
   }
+}
+
+// ── 단체 대화방 ──────────────────────────────────────────────────────────────
+
+async function handleGroupChatEndpoint(request, env) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  const jsonHeaders = { ...CORS_HEADERS, "Content-Type": "application/json" };
+
+  let body;
+  try { body = await request.json(); }
+  catch { return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers: jsonHeaders }); }
+
+  const text = (body.message || "").trim();
+  const roomId = body.room_id || "main";
+  if (!text) return new Response(JSON.stringify({ responses: [] }), { headers: jsonHeaders });
+
+  try {
+    // 1. 방 정보 + 최근 메시지 + 유저 프로필 병렬 로드
+    const [roomRows, profileRows, recentRows] = await Promise.all([
+      fetch(`${env.SUPABASE_URL.trim()}/rest/v1/group_rooms?id=eq.${roomId}&select=*&limit=1`, { headers: supabaseHeaders(env) }).then(r => r.json()),
+      fetch(`${env.SUPABASE_URL.trim()}/rest/v1/user_profile?id=eq.seongmin&limit=1`, { headers: supabaseHeaders(env) }).then(r => r.json()),
+      fetch(`${env.SUPABASE_URL.trim()}/rest/v1/group_messages?room_id=eq.${roomId}&select=character_id,character_name,content&order=created_at.desc&limit=6`, { headers: supabaseHeaders(env) }).then(r => r.json()),
+    ]);
+
+    const room = Array.isArray(roomRows) ? roomRows[0] : null;
+    if (!room) throw new Error("방을 찾을 수 없어");
+
+    const roomState = room.room_state || { topic: null, tone: "casual", recent_events: [] };
+    const participantIds = room.participant_ids || [];
+    const profile = Array.isArray(profileRows) ? (profileRows[0] || {}) : {};
+    const recentMsgs = Array.isArray(recentRows) ? recentRows.reverse() : [];
+    const userName = profile.name || "성민";
+
+    // 2. harin 제외한 캐릭터 설정 로드
+    const activeIds = participantIds.filter(id => id !== "harin");
+    if (activeIds.length === 0) throw new Error("참여 캐릭터가 없어");
+
+    const charRows = await fetch(
+      `${env.SUPABASE_URL.trim()}/rest/v1/characters?id=in.(${activeIds.map(id => `"${id}"`).join(",")})&select=id,name,color,system_prompt,api_provider,model`,
+      { headers: supabaseHeaders(env) }
+    ).then(r => r.json());
+
+    const characters = Array.isArray(charRows) ? charRows : [];
+
+    // 3. 유저 메시지 저장 (fire & forget)
+    fetch(`${env.SUPABASE_URL.trim()}/rest/v1/group_messages`, {
+      method: "POST",
+      headers: { ...supabaseHeaders(env), Prefer: "return=minimal" },
+      body: JSON.stringify({ room_id: roomId, character_id: "user", character_name: userName, content: text })
+    }).catch(() => {});
+
+    // 4. Group context 빌드
+    const groupCtx = buildGroupContextBlock(roomState, recentMsgs, userName);
+
+    // 5. 모든 캐릭터 병렬 호출 (15초 타임아웃)
+    const settled = await Promise.allSettled(
+      characters.map(async (char) => {
+        const reply = await Promise.race([
+          callCharacterForGroup(char, text, groupCtx, userName, env),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000))
+        ]);
+        return { character_id: char.id, name: char.name, color: char.color || "#6366f1", reply };
+      })
+    );
+
+    const responses = settled.filter(r => r.status === "fulfilled").map(r => r.value);
+
+    // 6. 응답 저장 + Room State 업데이트 (fire & forget)
+    Promise.all([
+      ...responses.map(r =>
+        fetch(`${env.SUPABASE_URL.trim()}/rest/v1/group_messages`, {
+          method: "POST",
+          headers: { ...supabaseHeaders(env), Prefer: "return=minimal" },
+          body: JSON.stringify({ room_id: roomId, character_id: r.character_id, character_name: r.name, content: r.reply })
+        })
+      ),
+      updateGroupRoomState(roomId, roomState, text, responses, env)
+    ]).catch(() => {});
+
+    return new Response(JSON.stringify({ responses }), { headers: jsonHeaders });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: jsonHeaders });
+  }
+}
+
+function buildGroupContextBlock(roomState, recentMsgs, userName) {
+  const parts = [];
+  if (roomState.topic) parts.push(`현재 주제: ${roomState.topic}`);
+  if (roomState.tone && roomState.tone !== "casual") parts.push(`분위기: ${roomState.tone}`);
+  if (roomState.recent_events?.length > 0) {
+    parts.push(`흐름: ${roomState.recent_events.slice(-3).join(" → ")}`);
+  }
+  const stateStr = parts.length > 0 ? parts.join(" / ") : "(대화 시작)";
+
+  const recentStr = recentMsgs.slice(-4).map(m => {
+    const speaker = m.character_id === "user" ? userName : (m.character_name || m.character_id);
+    return `${speaker}: ${m.content.slice(0, 100)}`;
+  }).join("\n");
+
+  return `[방 상태] ${stateStr}${recentStr ? `\n[최근 대화]\n${recentStr}` : ""}`;
+}
+
+async function callCharacterForGroup(char, userMessage, groupCtx, userName, env) {
+  const rawPrompt = (char.system_prompt || "")
+    .replace(/\{\{user\}\}/gi, userName)
+    .replace(/\{\{char\}\}/gi, char.name);
+
+  const systemPrompt = `${rawPrompt}
+
+## 지금 단체 대화방이야
+여러 AI 캐릭터가 함께 있어. 네 성격 그대로, 짧고 자연스럽게 반응해. 2-3문장으로 충분해. 모든 걸 설명하려 하지 마.
+${groupCtx}`;
+
+  const messages = [{ role: "user", content: userMessage }];
+  const provider = char.api_provider || "claude";
+  const model = char.model;
+
+  if (provider === "gemini") return callGemini(model || "gemini-3-flash-preview", systemPrompt, messages, env);
+  if (provider === "deepseek") return callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, systemPrompt, messages);
+  if (provider === "grok") return callOpenAICompatible("https://api.x.ai/v1/chat/completions", model || "grok-4.3", env.GROK_API_KEY, systemPrompt, messages);
+  if (provider === "openai") return callOpenAICompatible("https://api.openai.com/v1/chat/completions", model || "gpt-5.5", env.OPENAI_API_KEY, systemPrompt, messages);
+  // claude — 단체방은 web_search 제외 (빠른 응답 우선)
+  return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, false);
+}
+
+async function updateGroupRoomState(roomId, currentState, userMessage, responses, env) {
+  const summary = responses.map(r => `${r.name}: ${r.reply.slice(0, 60)}`).join(" | ");
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 200,
+        messages: [{
+          role: "user",
+          content: `단체 대화방 상태 업데이트. JSON만 반환.
+
+기존: ${JSON.stringify(currentState)}
+유저: "${userMessage}"
+반응: ${summary}
+
+형식: {"topic":"...","tone":"...","recent_events":["...","...","..."]}
+recent_events 최신 3개만. topic/tone은 대화 흐름 반영.`
+        }]
+      })
+    });
+    const data = await res.json();
+    const raw = data.content?.[0]?.text?.trim() || "";
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return;
+    const newState = JSON.parse(match[0]);
+    await fetch(`${env.SUPABASE_URL.trim()}/rest/v1/group_rooms?id=eq.${roomId}`, {
+      method: "PATCH",
+      headers: { ...supabaseHeaders(env), Prefer: "return=minimal" },
+      body: JSON.stringify({ room_state: newState, updated_at: new Date().toISOString() })
+    });
+  } catch {}
 }
 
 async function sendTelegram(token, chatId, text) {

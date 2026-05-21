@@ -10,9 +10,12 @@ import {
 import { subscribeToPush } from './services/pushSubscription';
 import Sidebar from './components/Sidebar';
 import ChatView from './components/ChatView';
+import GroupChatView from './components/GroupChatView';
 import CharacterEditor from './components/CharacterEditor';
 import UserProfileEditor from './components/UserProfileEditor';
 import EmptyState from './components/EmptyState';
+
+const GROUP_ID = '__group__';
 
 const CACHE_CHARS_KEY = 'sg_characters';
 const cacheMsgsKey = (id: string) => `sg_msgs_${id}`;
@@ -22,6 +25,7 @@ function resolveActiveId(chars: Character[]): string | null {
   const charParam = params.get('character');
   if (charParam && chars.find((c) => c.id === charParam)) return charParam;
   const last = localStorage.getItem('companions_last_char');
+  if (last === GROUP_ID) return GROUP_ID;
   if (last && chars.find((c) => c.id === last)) return last;
   return chars[0]?.id ?? null;
 }
@@ -245,7 +249,7 @@ export default function App() {
     setMessagesByChar((prev) => ({ ...prev, [id]: [] }));
   };
 
-  const activeCharacter = characters.find((c) => c.id === activeId) ?? null;
+  const activeCharacter = activeId === GROUP_ID ? null : (characters.find((c) => c.id === activeId) ?? null);
   const activeMessages = activeId ? (messagesByChar[activeId] ?? []) : [];
 
   // 스플래시용 preview 저장 — activeCharacter 확정 후 저장
@@ -319,14 +323,15 @@ export default function App() {
 
       {/* Main area */}
       <main className="flex-1 flex flex-col min-w-0">
-        {activeCharacter ? (
+        {activeId === GROUP_ID ? (
+          <GroupChatView characters={characters} roomId="main" />
+        ) : activeCharacter ? (
           <ChatView
             character={activeCharacter}
             messages={activeMessages}
             onMessagesChange={(msgs) => handleMessagesChange(activeCharacter.id, msgs)}
           />
         ) : loadingChars || activeId ? (
-          // 캐릭터 로드 중이거나 activeId는 있는데 아직 캐릭터 못 찾은 경우 — 빈 화면 대기
           <div className="flex-1" />
         ) : (
           <EmptyState onAdd={handleOpenAdd} />

@@ -9,6 +9,8 @@ interface SidebarProps {
   onOpenProfile: () => void;
 }
 
+const GROUP_ID = '__group__';
+
 function getInitials(name: string): string {
   return name
     .split(' ')
@@ -36,6 +38,30 @@ export default function Sidebar({
 
       {/* Character list */}
       <nav className="flex-1 overflow-y-auto py-3 space-y-1 px-2">
+        {/* 단체 대화방 */}
+        <button
+          onClick={() => onSelect(GROUP_ID)}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
+            activeId === GROUP_ID
+              ? 'bg-white/10 text-white'
+              : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
+          }`}
+        >
+          <div className="w-9 h-9 rounded-full flex items-center justify-center bg-gray-700 flex-shrink-0">
+            <svg className="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-medium">단체 대화방</span>
+            <p className="text-[11px] text-gray-500">group</p>
+          </div>
+        </button>
+
+        {/* 구분선 */}
+        <div className="border-t border-gray-700/50 my-1.5 mx-1" />
+
         {characters.map((char) => {
           const isActive = char.id === activeId;
           return (

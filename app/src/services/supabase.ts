@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Character, Message, CharacterContext, UserProfile } from '../types';
+import type { Character, Message, CharacterContext, UserProfile, GroupMessage } from '../types';
 
 const SUPABASE_URL = 'https://uxiymaeobmleshekvqvl.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -109,4 +109,17 @@ export async function upsertUserProfile(profile: UserProfile): Promise<void> {
     .from('user_profile')
     .upsert({ ...profile, updated_at: new Date().toISOString() }, { onConflict: 'id' });
   if (error) throw error;
+}
+
+// ── Group Chat ────────────────────────────────────────────────────────────────
+
+export async function fetchGroupMessages(roomId: string, limit = 60): Promise<GroupMessage[]> {
+  const { data, error } = await supabase
+    .from('group_messages')
+    .select('*')
+    .eq('room_id', roomId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as GroupMessage[];
 }

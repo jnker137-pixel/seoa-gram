@@ -66,3 +66,19 @@ export interface ChatState {
   isLoading: boolean;
   error: string | null;
 }
+
+export interface GroupMessage {
+  id?: number;
+  room_id: string;
+  character_id: string;
+  character_name: string | null;
+  content: string;
+  created_at?: string;
+}
+
+export interface GroupResponse {
+  character_id: string;
+  name: string;
+  color: string;
+  reply: string;
+}
