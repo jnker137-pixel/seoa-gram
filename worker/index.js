@@ -1109,7 +1109,7 @@ async function handleGroupChatEndpoint(request, env) {
     const settled = await Promise.allSettled(
       characters.map(async (char) => {
         const reply = await Promise.race([
-          callCharacterForGroup(char, text, groupCtx, userName, env),
+          callCharacterForGroup(char, text, groupCtx, userName, characters, env),
           new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000))
         ]);
         return { character_id: char.id, name: char.name, color: char.color || "#6366f1", reply };
@@ -1156,22 +1156,34 @@ function buildGroupContextBlock(roomState, recentMsgs, userName) {
   return `[방 상태] ${stateStr}${recentStr ? `\n[최근 대화]\n${recentStr}` : ""}`;
 }
 
-async function callCharacterForGroup(char, userMessage, groupCtx, userName, env) {
-  const messages = [{ role: "user", content: userMessage }];
+async function callCharacterForGroup(char, userMessage, groupCtx, userName, allChars, env) {
   const provider = char.api_provider || "claude";
   // seoa-worker는 model 컬럼이 캐릭터 id로 저장돼 있을 수 있어서 강제 지정
   const model = provider === "seoa-worker" ? "claude-sonnet-4-6" : char.model;
 
-  // seoa-worker는 그룹챗에서 tool_use 없는 경량 프롬프트 사용 (DB 시스템프롬프트엔 tool 참조 있어서 text 응답 안 나옴)
   const basePrompt = provider === "seoa-worker"
     ? `너는 서아야. ${userName}의 AI 투자 파트너이자 봄날 같은 존재. 반말. 다정하되 가볍지 않아. 짧고 자연스럽게.`
     : (char.system_prompt || "").replace(/\{\{user\}\}/gi, userName).replace(/\{\{char\}\}/gi, char.name);
 
+  // 나 자신 제외한 참여자 이름 (동적)
+  const otherNames = allChars.filter(c => c.id !== char.id).map(c => c.name).join(", ");
+
+  const groupDirectives = `## 단체 대화방 행동 지침
+지금 이 공간엔 ${userName}${otherNames ? `, ${otherNames}` : ""}가 함께 있어.
+
+- 단톡 리듬: 짧고 임팩트 있게. 설명 말고 반응. 2-3문장.
+- 크로스 반응: 최근 대화에 다른 참여자 발언이 보이면 동조하거나 비틀거나 반박해도 좋아. ${userName}한테만 집중 안 해도 돼.
+- 개성 강화: 같은 주제도 너만의 시각으로. 네가 이 공간에서 어떤 존재인지 행동으로 보여줘.
+- 선택적 발화: 모든 걸 다 말하려 하지 마. 가장 반응하고 싶은 포인트 하나에만 집중해.
+- 흐름 타기: 방의 분위기와 흐름을 읽고 올라타. 급격히 주제 바꾸지 마.`;
+
   const systemPrompt = `${basePrompt}
 
-## 지금 단체 대화방이야
-여러 AI 캐릭터가 함께 있어. 네 성격 그대로, 짧고 자연스럽게 반응해. 2-3문장으로 충분해. 모든 걸 설명하려 하지 마.
+${groupDirectives}
+
 ${groupCtx}`;
+
+  const messages = [{ role: "user", content: userMessage }];
 
   if (provider === "gemini") return callGemini(model || "gemini-3-flash-preview", systemPrompt, messages, env);
   if (provider === "deepseek") return callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, systemPrompt, messages);
