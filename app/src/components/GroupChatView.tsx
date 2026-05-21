@@ -116,10 +116,9 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
   };
 
   return (
-    // h-[100dvh] 대신 부모 flex 컨텍스트를 채우도록 (App main이 flex-1 flex-col)
-    <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
+    <div className="flex flex-col h-[100dvh] bg-gray-50">
       {/* Header */}
-      <header className="relative flex-shrink-0 overflow-hidden bg-gray-900" style={{ height: '144px' }}>
+      <header className="relative h-36 flex-shrink-0 overflow-hidden bg-gray-900">
         <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900" />
         <div className="absolute bottom-0 left-0 right-0 px-5 pb-4">
           <div className="flex items-center gap-1 mb-2">
@@ -137,7 +136,7 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
       </header>
 
       {/* Messages */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-2">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
         {messages.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm gap-1">
             <p className="font-medium text-gray-500">단체 대화방</p>
