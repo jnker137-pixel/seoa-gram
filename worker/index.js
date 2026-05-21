@@ -232,7 +232,7 @@ async function routeForRecord(parsed, originalText, env) {
 
 async function handleGenericCharacter(characterId, text, clientHistory, env) {
   // 1. 병렬 읽기: 캐릭터 설정 + 장기 기억 + 공통 유저 프로필 + 쿼리 임베딩 + (세아) 스윙 포트
-  const [chars, ctxRows, profileRows, queryEmbedding, swingHistory] = await Promise.all([
+  const [chars, ctxRows, profileRows, queryEmbedding, swingHistory, relationships] = await Promise.all([
     fetch(
       `${env.SUPABASE_URL.trim()}/rest/v1/characters?id=eq.${encodeURIComponent(characterId)}&select=*&limit=1`,
       { headers: supabaseHeaders(env) }
@@ -247,6 +247,10 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
     ).then(r => r.json()),
     embedText(text, env),
     characterId === "seoa-swing" ? fetchSwingHistoryForChar(env) : Promise.resolve(null),
+    fetch(
+      `${env.SUPABASE_URL.trim()}/rest/v1/character_relationships?source_id=eq.${encodeURIComponent(characterId)}&select=*`,
+      { headers: supabaseHeaders(env) }
+    ).then(r => r.json()).catch(() => []),
   ]);
 
   if (!Array.isArray(chars) || chars.length === 0) {
@@ -287,6 +291,10 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
 
   const swingBlock = swingHistory ? `\n## 내 스윙 포트 현황 (실시간)\n${formatSwingBlock(swingHistory)}` : "";
 
+  // 관계 블록: 다른 캐릭터가 대화에서 언급될 때만 주입 (relevance gating)
+  const relRows = Array.isArray(relationships) ? relationships : [];
+  const relBlock = buildRelationshipSection(relRows, text, clientHistory);
+
   const systemPrompt = [
     rawPrompt,
     `오늘 날짜: ${today}`,
@@ -294,6 +302,7 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
     memLines.length > 0 ? `\n## 장기 기억\n${memLines.join("\n")}` : "",
     episodeLines.length > 0 ? `\n## 떠오르는 기억 (지금 대화와 연관)\n${episodeLines.join("\n")}` : "",
     swingBlock,
+    relBlock,
   ].filter(Boolean).join("\n");
 
   // Layer 3: 최근 대화 (클라이언트 전달, 최근 12개)
@@ -1130,8 +1139,11 @@ async function handleGroupChatEndpoint(request, env) {
       )
     ).catch(() => {});
 
-    // 7. Room State 업데이트 (Haiku, max_tokens 200이라 빠름)
-    await updateGroupRoomState(roomId, roomState, text, responses, env);
+    // 7. Room State + 관계 업데이트 (병렬)
+    await Promise.all([
+      updateGroupRoomState(roomId, roomState, text, responses, env),
+      extractAndApplyRelationshipEvents(characters, text, responses, roomId, env),
+    ]);
 
     return new Response(JSON.stringify({ responses, participant_ids: activeParticipantIds }), { headers: jsonHeaders });
   } catch (e) {
@@ -1226,6 +1238,152 @@ recent_events 최신 3개만. topic/tone은 대화 흐름 반영.`
       body: JSON.stringify({ room_state: newState, updated_at: new Date().toISOString() })
     });
   } catch {}
+}
+
+// ── 캐릭터 관계 시스템 ────────────────────────────────────────────────────────
+
+// 이벤트 타입별 관계 차원 변화량
+const REL_EVENT_DELTAS = {
+  contradiction: { tension: +8, affection: -3, trust: -2, respect: +1 },
+  agreement:     { affection: +5, trust: +4, tension: -2 },
+  support:       { respect: +6, trust: +4, affection: +2 },
+  mention:       { affection: +1 },
+  competition:   { tension: +6, respect: +2 },
+  joke:          { affection: +5, tension: -3 },
+};
+
+// 관계 차원 값으로 행동 경향 텍스트 생성 (레이블 금지, 행동 기술만)
+function deriveBehavioralNote(rel) {
+  const t = rel.tension, a = rel.affection, r = rel.respect, tr = rel.trust;
+  if (t > 65 && r > 65) return "의견 충돌이 있지만 능력은 인정하는 편";
+  if (t > 65 && a < 40) return "불편함과 긴장감이 누적된 상태";
+  if (t > 65) return "마찰이 종종 생기는 관계";
+  if (a > 70 && tr > 65) return "편안하고 신뢰가 쌓인 사이";
+  if (a > 70) return "친근하게 느끼는 상대";
+  if (r > 70) return "능력을 높게 평가하는 상대";
+  if (tr < 40) return "아직 신뢰가 많지 않음";
+  return "서로 알아가는 중";
+}
+
+// inertia 공식으로 관계 차원 업데이트 (관계는 느리게 변해야 현실감)
+function applyInertia(current, deltas, intensity) {
+  const result = { ...current };
+  for (const [dim, delta] of Object.entries(deltas)) {
+    if (result[dim] == null) continue;
+    const change = delta * intensity * 0.4;  // 이벤트 1회당 최대 ~4포인트 변화
+    result[dim] = Math.round(Math.max(0, Math.min(100, result[dim] + change)));
+  }
+  result.interaction_count = (result.interaction_count || 0) + 1;
+  result.behavioral_note = deriveBehavioralNote(result);
+  result.last_updated = new Date().toISOString();
+  return result;
+}
+
+// Haiku로 대화에서 캐릭터 간 이벤트 추출 (관찰만, 해석 금지)
+async function extractGroupEvents(characters, userMessage, responses, env) {
+  const charNames = characters.map(c => c.name).join(", ");
+  const responseText = responses.map(r => `${r.name}: ${r.reply.slice(0, 80)}`).join("\n");
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 400,
+      messages: [{
+        role: "user",
+        content: `캐릭터 간 상호작용을 관찰해. 해석 없이 관찰만. JSON 배열만 반환. 없으면 [].
+
+참여 캐릭터: ${charNames}
+유저: ${userMessage}
+응답:
+${responseText}
+
+[{"source":"캐릭터명","target":"캐릭터명","type":"타입","intensity":0.5,"excerpt":"근거 텍스트"}]
+
+type 종류: contradiction(반박) agreement(동조) support(지지) mention(언급) competition(경쟁) joke(농담)
+intensity: 0.0~1.0 (얼마나 강한 상호작용인지)
+캐릭터가 유저에게만 말하고 서로 언급 없으면 []`
+      }]
+    })
+  });
+  const data = await res.json();
+  const raw = data.content?.[0]?.text?.trim() || "";
+  const match = raw.match(/\[[\s\S]*\]/);
+  if (!match) return [];
+  try { return JSON.parse(match[0]); } catch { return []; }
+}
+
+// 관계 row upsert (없으면 기본값으로 생성, 있으면 inertia 적용)
+async function upsertRelationship(sourceId, targetId, targetName, deltas, intensity, env) {
+  // 기존 관계 로드
+  const existing = await fetch(
+    `${env.SUPABASE_URL.trim()}/rest/v1/character_relationships?source_id=eq.${encodeURIComponent(sourceId)}&target_id=eq.${encodeURIComponent(targetId)}&limit=1`,
+    { headers: supabaseHeaders(env) }
+  ).then(r => r.json()).then(rows => Array.isArray(rows) && rows.length > 0 ? rows[0] : null).catch(() => null);
+
+  const base = existing || { source_id: sourceId, target_id: targetId, target_name: targetName, affection: 50, respect: 50, tension: 30, trust: 50, behavioral_note: "", interaction_count: 0 };
+  const updated = applyInertia(base, deltas, intensity);
+
+  await fetch(`${env.SUPABASE_URL.trim()}/rest/v1/character_relationships`, {
+    method: "POST",
+    headers: { ...supabaseHeaders(env), "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ ...base, ...updated, source_id: sourceId, target_id: targetId, target_name: targetName })
+  });
+}
+
+// 그룹챗 이벤트 추출 → 관계 DB 업데이트
+async function extractAndApplyRelationshipEvents(characters, userMessage, responses, roomId, env) {
+  try {
+    const events = await extractGroupEvents(characters, userMessage, responses, env);
+    if (events.length === 0) return;
+
+    // 이벤트 저장 + 관계 업데이트 병렬
+    const charByName = Object.fromEntries(characters.map(c => [c.name, c]));
+
+    await Promise.all(events.map(async (ev) => {
+      const srcChar = charByName[ev.source];
+      const tgtChar = charByName[ev.target];
+      if (!srcChar || !tgtChar) return;
+
+      const deltas = REL_EVENT_DELTAS[ev.type] || {};
+      const intensity = ev.intensity || 0.5;
+
+      await Promise.all([
+        // 이벤트 로그 저장
+        fetch(`${env.SUPABASE_URL.trim()}/rest/v1/relationship_events`, {
+          method: "POST",
+          headers: { ...supabaseHeaders(env), Prefer: "return=minimal" },
+          body: JSON.stringify({ source_id: srcChar.id, target_id: tgtChar.id, event_type: ev.type, intensity, context_excerpt: ev.excerpt || "", room_id: roomId })
+        }),
+        // 관계 상태 업데이트 (inertia 적용)
+        upsertRelationship(srcChar.id, tgtChar.id, tgtChar.name, deltas, intensity, env),
+      ]);
+    }));
+  } catch {}
+}
+
+// 1:1 대화 시 관계 주입 (relevance gating: 다른 캐릭터 언급될 때만)
+function buildRelationshipSection(relationships, userMessage, clientHistory) {
+  if (!relationships || relationships.length === 0) return "";
+
+  // 최근 대화 + 현재 메시지에서 언급된 캐릭터 찾기
+  const recentText = [
+    userMessage,
+    ...(clientHistory || []).slice(-3).map(m => m.content)
+  ].join(" ").toLowerCase();
+
+  const relevant = relationships.filter(rel =>
+    rel.target_name && recentText.includes(rel.target_name.toLowerCase())
+  );
+
+  if (relevant.length === 0) return "";
+
+  const lines = relevant.map(rel =>
+    `- ${rel.target_name}: ${rel.behavioral_note || deriveBehavioralNote(rel)}`
+  );
+
+  return `\n## 대화에서 언급된 캐릭터와의 관계\n${lines.join("\n")}\n(이 맥락을 자연스럽게 반영해. 직접 설명하거나 레이블 붙이지 마.)`;
 }
 
 async function sendTelegram(token, chatId, text) {
