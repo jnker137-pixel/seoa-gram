@@ -14,6 +14,18 @@ import CharacterEditor from './components/CharacterEditor';
 import UserProfileEditor from './components/UserProfileEditor';
 import EmptyState from './components/EmptyState';
 
+const CACHE_CHARS_KEY = 'sg_characters';
+const cacheMsgsKey = (id: string) => `sg_msgs_${id}`;
+
+function resolveActiveId(chars: Character[]): string | null {
+  const params = new URLSearchParams(window.location.search);
+  const charParam = params.get('character');
+  if (charParam && chars.find((c) => c.id === charParam)) return charParam;
+  const last = localStorage.getItem('companions_last_char');
+  if (last && chars.find((c) => c.id === last)) return last;
+  return chars[0]?.id ?? null;
+}
+
 export default function App() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -50,37 +62,56 @@ export default function App() {
     }
   };
 
-  // Load characters from Supabase on mount
+  // 마운트: 캐시 즉시 렌더 → Supabase 백그라운드 갱신
   useEffect(() => {
+    // 1. localStorage 캐시 즉시 표시 (로딩 없음)
+    const raw = localStorage.getItem(CACHE_CHARS_KEY);
+    if (raw) {
+      try {
+        const cached: Character[] = JSON.parse(raw);
+        if (cached.length > 0) {
+          setCharacters(cached);
+          setActiveId(resolveActiveId(cached));
+          const msgs: Record<string, Message[]> = {};
+          for (const c of cached) {
+            const m = localStorage.getItem(cacheMsgsKey(c.id));
+            if (m) msgs[c.id] = JSON.parse(m);
+          }
+          setMessagesByChar(msgs);
+          setLoadingChars(false);
+        }
+      } catch {}
+    }
+
+    // 2. Supabase에서 최신 데이터 백그라운드 갱신
     fetchCharacters()
       .then((chars) => {
         setCharacters(chars);
-        // URL 파라미터 ?character=xxx 우선 처리 (FCM 알림 탭 시)
-        const params = new URLSearchParams(window.location.search);
-        const charParam = params.get('character');
-        if (charParam && chars.find((c) => c.id === charParam)) {
-          setActiveId(charParam);
-        } else {
-          const last = localStorage.getItem('companions_last_char');
-          if (last && chars.find((c) => c.id === last)) {
-            setActiveId(last);
-          } else if (chars.length > 0) {
-            setActiveId(chars[0].id);
-          }
-        }
+        localStorage.setItem(CACHE_CHARS_KEY, JSON.stringify(chars));
+        setActiveId((prev) => {
+          if (prev && chars.find((c) => c.id === prev)) return prev;
+          return resolveActiveId(chars);
+        });
       })
       .catch((e) => console.error('캐릭터 로드 실패:', e))
       .finally(() => setLoadingChars(false));
   }, []);
 
-  // Load messages when active character changes
+  // 활성 캐릭터 바뀌면 메시지 백그라운드 갱신 (캐시 있어도 새로 fetch)
   useEffect(() => {
     if (!activeId) return;
-    if (messagesByChar[activeId]) return;
-
     fetchMessages(activeId)
       .then((msgs) => {
-        setMessagesByChar((prev) => ({ ...prev, [activeId]: msgs }));
+        setMessagesByChar((prev) => {
+          // 캐시보다 길거나 내용이 다를 때만 교체 (불필요한 리렌더 방지)
+          const prev_msgs = prev[activeId] ?? [];
+          if (msgs.length === prev_msgs.length &&
+              msgs[msgs.length - 1]?.id === prev_msgs[prev_msgs.length - 1]?.id) {
+            return prev;
+          }
+          return { ...prev, [activeId]: msgs };
+        });
+        localStorage.setItem(cacheMsgsKey(activeId), JSON.stringify(msgs.slice(-30)));
       })
       .catch((e) => console.error('메시지 로드 실패:', e));
   }, [activeId]);
@@ -97,6 +128,9 @@ export default function App() {
 
   const handleMessagesChange = (characterId: string, msgs: Message[]) => {
     setMessagesByChar((prev) => ({ ...prev, [characterId]: msgs }));
+    try {
+      localStorage.setItem(cacheMsgsKey(characterId), JSON.stringify(msgs.slice(-30)));
+    } catch {}
   };
 
   const handleOpenAdd = () => {
