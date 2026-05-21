@@ -28,13 +28,17 @@ function resolveActiveId(chars: Character[]): string | null {
 
 export default function App() {
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  // localStorage에서 즉시 복원 — 캐릭터 로드 전에도 마지막 선택 유지
+  const [activeId, setActiveId] = useState<string | null>(
+    () => localStorage.getItem('companions_last_char')
+  );
   const [messagesByChar, setMessagesByChar] = useState<Record<string, Message[]>>({});
   const [loadingChars, setLoadingChars] = useState(true);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingChar, setEditingChar] = useState<Character | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // 모바일은 사이드바 닫힌 채로 시작 (채팅창 바로 표시)
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [notifStatus, setNotifStatus] = useState<'default' | 'granted' | 'denied'>('default');
   const [notifError, setNotifError] = useState<string | null>(null);
   const [notifDone, setNotifDone] = useState(false);
@@ -88,6 +92,7 @@ export default function App() {
       .then((chars) => {
         setCharacters(chars);
         localStorage.setItem(CACHE_CHARS_KEY, JSON.stringify(chars));
+        // 현재 선택이 신규 캐릭터(캐시에 없던)면 그대로 유지, 완전 무효한 경우만 재선택
         setActiveId((prev) => {
           if (prev && chars.find((c) => c.id === prev)) return prev;
           return resolveActiveId(chars);
@@ -254,16 +259,15 @@ export default function App() {
 
       {/* Main area */}
       <main className="flex-1 flex flex-col min-w-0">
-        {loadingChars ? (
-          <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-            로딩 중...
-          </div>
-        ) : activeCharacter ? (
+        {activeCharacter ? (
           <ChatView
             character={activeCharacter}
             messages={activeMessages}
             onMessagesChange={(msgs) => handleMessagesChange(activeCharacter.id, msgs)}
           />
+        ) : loadingChars || activeId ? (
+          // 캐릭터 로드 중이거나 activeId는 있는데 아직 캐릭터 못 찾은 경우 — 빈 화면 대기
+          <div className="flex-1" />
         ) : (
           <EmptyState onAdd={handleOpenAdd} />
         )}
