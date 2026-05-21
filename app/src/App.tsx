@@ -97,6 +97,13 @@ export default function App() {
       .finally(() => setLoadingChars(false));
   }, []);
 
+  // 캐릭터 로드됐는데 activeId가 없으면 자동 선택 (안전망)
+  useEffect(() => {
+    if (characters.length > 0 && !activeId) {
+      setActiveId(resolveActiveId(characters));
+    }
+  }, [characters]);
+
   // 활성 캐릭터 바뀌면 메시지 백그라운드 갱신 (캐시 있어도 새로 fetch)
   useEffect(() => {
     if (!activeId) return;
