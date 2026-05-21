@@ -27,7 +27,7 @@ export default function Sidebar({
   onOpenProfile,
 }: SidebarProps) {
   return (
-    <aside className="flex flex-col w-64 min-w-[64px] max-w-xs bg-gray-900 text-white h-screen">
+    <aside className="flex flex-col w-64 min-w-[64px] max-w-xs bg-gray-900 text-white h-[100dvh]">
       {/* Header */}
       <div className="px-4 py-5 border-b border-gray-700">
         <h1 className="text-lg font-bold tracking-tight text-white">Companions</h1>

@@ -260,7 +260,7 @@ export default function App() {
   }, [activeCharacter]);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
+    <div className="flex flex-col h-[100dvh] overflow-hidden bg-gray-50">
       {/* 스플래시 */}
       <Splash character={activeCharacter} visible={splashVisible} />
 
