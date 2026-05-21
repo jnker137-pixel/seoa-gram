@@ -14,6 +14,7 @@ import GroupChatView from './components/GroupChatView';
 import CharacterEditor from './components/CharacterEditor';
 import UserProfileEditor from './components/UserProfileEditor';
 import EmptyState from './components/EmptyState';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const GROUP_ID = '__group__';
 
@@ -322,20 +323,22 @@ export default function App() {
       </div>
 
       {/* Main area */}
-      <main className="flex-1 flex flex-col min-w-0">
-        {activeId === GROUP_ID ? (
-          <GroupChatView characters={characters} roomId="main" />
-        ) : activeCharacter ? (
-          <ChatView
-            character={activeCharacter}
-            messages={activeMessages}
-            onMessagesChange={(msgs) => handleMessagesChange(activeCharacter.id, msgs)}
-          />
-        ) : loadingChars || activeId ? (
-          <div className="flex-1" />
-        ) : (
-          <EmptyState onAdd={handleOpenAdd} />
-        )}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <ErrorBoundary>
+          {activeId === GROUP_ID ? (
+            <GroupChatView characters={characters} roomId="main" />
+          ) : activeCharacter ? (
+            <ChatView
+              character={activeCharacter}
+              messages={activeMessages}
+              onMessagesChange={(msgs) => handleMessagesChange(activeCharacter.id, msgs)}
+            />
+          ) : loadingChars || activeId ? (
+            <div className="flex-1" />
+          ) : (
+            <EmptyState onAdd={handleOpenAdd} />
+          )}
+        </ErrorBoundary>
       </main>
 
       {/* Character editor modal */}

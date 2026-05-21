@@ -120,7 +120,7 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-gray-50">
+    <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
       {/* Header */}
       <header className="relative h-36 flex-shrink-0 overflow-hidden bg-gray-900">
         <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900" />
