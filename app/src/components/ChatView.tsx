@@ -92,7 +92,7 @@ export default function ChatView({
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Banner */}
-      <header className="relative h-72 flex-shrink-0 overflow-hidden">
+      <header className="relative h-64 flex-shrink-0 overflow-hidden">
         {character.avatar_url ? (
           <img
             src={character.avatar_url}
