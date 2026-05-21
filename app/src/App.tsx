@@ -26,28 +26,38 @@ function resolveActiveId(chars: Character[]): string | null {
   return chars[0]?.id ?? null;
 }
 
+const PREVIEW_KEY = 'sg_active_preview';
+
 function Splash({ character, visible }: { character: Character | null; visible: boolean }) {
+  // 캐릭터 캐시에 없어도 이전 방문 때 저장한 preview 사용
+  const char = character ?? (() => {
+    try {
+      const raw = localStorage.getItem(PREVIEW_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  })();
+
   return (
     <div
       className="fixed inset-0 z-50 pointer-events-none transition-opacity duration-700"
       style={{ opacity: visible ? 1 : 0 }}
     >
       {/* 배경: 아바타 있으면 이미지, 없으면 컬러 그라디언트 */}
-      {character?.avatar_url ? (
+      {char?.avatar_url ? (
         <img
-          src={character.avatar_url}
-          alt={character.name}
-          className="absolute inset-0 w-full h-full object-cover object-top"
+          src={char.avatar_url}
+          alt={char.name}
+          className="absolute inset-0 w-full h-full object-cover object-center"
         />
       ) : (
         <div
           className="absolute inset-0"
           style={{
-            background: `linear-gradient(160deg, ${character?.color || '#6366f1'}dd, ${character?.color || '#6366f1'}55)`
+            background: `linear-gradient(160deg, ${char?.color || '#6366f1'}dd, ${char?.color || '#6366f1'}55)`
           }}
         >
           <span className="absolute bottom-32 left-8 text-[12rem] font-black text-white/10 select-none leading-none">
-            {character?.name?.slice(0, 1) ?? ''}
+            {char?.name?.slice(0, 1) ?? ''}
           </span>
         </div>
       )}
@@ -55,7 +65,7 @@ function Splash({ character, visible }: { character: Character | null; visible: 
       <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/80" />
       <div className="absolute bottom-16 left-0 right-0 px-8">
         <p className="text-white/50 text-sm mb-1">seoa-gram</p>
-        <h1 className="text-white text-4xl font-bold drop-shadow-lg">{character?.name ?? ''}</h1>
+        <h1 className="text-white text-4xl font-bold drop-shadow-lg">{char?.name ?? ''}</h1>
       </div>
     </div>
   );
@@ -237,6 +247,17 @@ export default function App() {
 
   const activeCharacter = characters.find((c) => c.id === activeId) ?? null;
   const activeMessages = activeId ? (messagesByChar[activeId] ?? []) : [];
+
+  // 스플래시용 preview 저장 — activeCharacter 확정 후 저장
+  useEffect(() => {
+    if (!activeCharacter) return;
+    localStorage.setItem(PREVIEW_KEY, JSON.stringify({
+      id: activeCharacter.id,
+      name: activeCharacter.name,
+      color: activeCharacter.color,
+      avatar_url: activeCharacter.avatar_url,
+    }));
+  }, [activeCharacter]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
