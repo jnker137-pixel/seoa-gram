@@ -6,7 +6,11 @@ export async function subscribeToPush(clientId: string): Promise<string> {
   if (!('serviceWorker' in navigator)) throw new Error('serviceWorker 미지원');
   if (!('PushManager' in window)) throw new Error('PushManager 미지원');
 
-  const registration = await navigator.serviceWorker.register('/seoa-gram/sw-push.js');
+  // 이미 등록된 SW 재사용 (매번 register 하면 SW 업데이트 중 앱 reload 가능성)
+  let registration = await navigator.serviceWorker.getRegistration('/seoa-gram/');
+  if (!registration) {
+    registration = await navigator.serviceWorker.register('/seoa-gram/sw-push.js');
+  }
   await navigator.serviceWorker.ready;
 
   const permission = await Notification.requestPermission();
