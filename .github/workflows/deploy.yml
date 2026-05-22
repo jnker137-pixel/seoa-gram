@@ -28,6 +28,38 @@ jobs:
           cache: 'npm'
           cache-dependency-path: app/package-lock.json
 
+      - name: Supabase 아바타 동기화
+        env:
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          pip install requests --quiet
+          python3 - <<'PYEOF'
+          import os, requests, base64, re
+
+          SUPABASE_URL = "https://uxiymaeobmleshekvqvl.supabase.co"
+          SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+
+          res = requests.get(
+              f"{SUPABASE_URL}/rest/v1/characters?select=id,avatar_url",
+              headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+          )
+          import os as _os
+          _os.makedirs("app/public/avatars", exist_ok=True)
+          for char in res.json():
+              cid = char["id"]
+              av = char.get("avatar_url") or ""
+              if not av.startswith("data:image/"):
+                  continue
+              m = re.match(r"data:image/\w+;base64,(.+)", av)
+              if not m:
+                  continue
+              data = base64.b64decode(m.group(1))
+              path = f"app/public/avatars/{cid}.png"
+              with open(path, "wb") as f:
+                  f.write(data)
+              print(f"아바타 저장: {path}")
+          PYEOF
+
       - name: Install dependencies
         working-directory: app
         run: npm ci
