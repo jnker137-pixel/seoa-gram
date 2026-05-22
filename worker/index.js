@@ -50,10 +50,11 @@ export default {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+            Authorization: `Bearer ${env.SEOA_GRAM_TOKEN}`,
             Accept: "application/vnd.github+json",
             "Content-Type": "application/json",
             "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "seoa-gram-worker",
           },
           body: JSON.stringify({ ref: "main" }),
         }
