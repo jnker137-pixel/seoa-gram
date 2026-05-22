@@ -273,12 +273,16 @@ export default function App() {
   // 스플래시용 preview 저장 — activeCharacter 확정 후 저장
   useEffect(() => {
     if (!activeCharacter) return;
-    localStorage.setItem(PREVIEW_KEY, JSON.stringify({
-      id: activeCharacter.id,
-      name: activeCharacter.name,
-      color: activeCharacter.color,
-      avatar_url: activeCharacter.avatar_url,
-    }));
+    try {
+      localStorage.setItem(PREVIEW_KEY, JSON.stringify({
+        id: activeCharacter.id,
+        name: activeCharacter.name,
+        color: activeCharacter.color,
+        // avatar_url 제외 — base64가 크면 localStorage 용량 초과
+      }));
+    } catch {
+      // localStorage 용량 초과 시 무시 (스플래시 색상만으로 충분)
+    }
   }, [activeCharacter]);
 
   return (
