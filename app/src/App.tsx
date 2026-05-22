@@ -33,9 +33,9 @@ function resolveActiveId(chars: Character[]): string | null {
 }
 
 const PREVIEW_KEY = 'sg_active_preview';
+const AVATAR_BASE = 'https://jnker137-pixel.github.io/seoa-gram/avatars/';
 
 function Splash({ character, visible }: { character: Character | null; visible: boolean }) {
-  // 캐릭터 캐시에 없어도 이전 방문 때 저장한 preview 사용
   const char = character ?? (() => {
     try {
       const raw = localStorage.getItem(PREVIEW_KEY);
@@ -43,17 +43,23 @@ function Splash({ character, visible }: { character: Character | null; visible: 
     } catch { return null; }
   })();
 
+  // avatar_url 없으면 GitHub Pages 호스팅 PNG fallback
+  const [imgFailed, setImgFailed] = useState(false);
+  const avatarSrc = !imgFailed
+    ? (char?.avatar_url || (char?.id ? `${AVATAR_BASE}${char.id}.png` : null))
+    : null;
+
   return (
     <div
       className="fixed inset-0 z-50 pointer-events-none transition-opacity duration-700"
       style={{ opacity: visible ? 1 : 0 }}
     >
-      {/* 배경: 아바타 있으면 이미지, 없으면 컬러 그라디언트 */}
-      {char?.avatar_url ? (
+      {avatarSrc ? (
         <img
-          src={char.avatar_url}
-          alt={char.name}
+          src={avatarSrc}
+          alt={char?.name ?? ''}
           className="absolute inset-0 w-full h-full object-cover object-center"
+          onError={() => setImgFailed(true)}
         />
       ) : (
         <div
@@ -67,7 +73,6 @@ function Splash({ character, visible }: { character: Character | null; visible: 
           </span>
         </div>
       )}
-      {/* 하단 페이드 + 이름 */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/80" />
       <div className="absolute bottom-16 left-0 right-0 px-8">
         <p className="text-white/50 text-sm mb-1">seoa-gram</p>
@@ -146,6 +151,10 @@ export default function App() {
       }
     };
     navigator.serviceWorker.addEventListener('message', handler);
+    // SW에 ready 알림 — 새 창으로 열렸을 때 pendingNavigate 수신
+    navigator.serviceWorker.ready.then((reg) => {
+      reg.active?.postMessage({ type: 'ready' });
+    });
     return () => navigator.serviceWorker.removeEventListener('message', handler);
   }, []);
 
