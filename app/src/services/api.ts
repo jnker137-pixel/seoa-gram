@@ -78,3 +78,7 @@ export async function sendGroupMessage(
   if (data.error) throw new Error(data.error);
   return { responses: data.responses ?? [], participantIds: data.participant_ids ?? [] };
 }
+
+export async function triggerDeploy() {
+  await fetch(`${WORKER_URL}/trigger-deploy`, { method: 'POST' });
+}

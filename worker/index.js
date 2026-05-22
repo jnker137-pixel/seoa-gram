@@ -43,6 +43,27 @@ export default {
       return handleGroupChatEndpoint(request, env);
     }
 
+    // /trigger-deploy — seoa-gram GitHub Pages 배포 트리거
+    if (url.pathname === "/trigger-deploy" && request.method === "POST") {
+      const res = await fetch(
+        "https://api.github.com/repos/jnker137-pixel/seoa-gram/actions/workflows/deploy.yml/dispatches",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+          body: JSON.stringify({ ref: "main" }),
+        }
+      );
+      return new Response(JSON.stringify({ ok: res.ok, status: res.status }), {
+        status: res.ok ? 200 : 500,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
     // 텔레그램 webhook
     if (request.method !== "POST") return new Response("OK");
     const update = await request.json();

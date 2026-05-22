@@ -8,6 +8,7 @@ import {
   clearMessages,
 } from './services/supabase';
 import { subscribeToPush } from './services/pushSubscription';
+import { triggerDeploy } from './services/api';
 import Sidebar from './components/Sidebar';
 import ChatView from './components/ChatView';
 import GroupChatView from './components/GroupChatView';
@@ -212,6 +213,8 @@ export default function App() {
   };
 
   const handleSaveCharacter = async (char: Character) => {
+    const existing = characters.find((c) => c.id === char.id);
+    const avatarChanged = char.avatar_url !== existing?.avatar_url;
     const saved = await upsertCharacter(char);
     setCharacters((prev) => {
       const idx = prev.findIndex((c) => c.id === saved.id);
@@ -224,6 +227,7 @@ export default function App() {
     });
     setActiveId(saved.id);
     setEditorOpen(false);
+    if (avatarChanged) triggerDeploy().catch(() => {});
   };
 
   const handleDeleteCharacter = async (id: string) => {
