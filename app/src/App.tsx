@@ -133,6 +133,19 @@ export default function App() {
     }
   }, []);
 
+  // Service Worker 메시지 처리 (알람 탭 시 캐릭터 전환)
+  useEffect(() => {
+    if (!navigator.serviceWorker) return;
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'navigate' && e.data.character) {
+        setActiveId(e.data.character);
+        localStorage.setItem('companions_last_char', e.data.character);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, []);
+
   const handleEnableNotifications = async () => {
     setNotifError(null);
     try {

@@ -21,6 +21,19 @@ self.addEventListener('push', (e) => {
 
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const target = (e.notification.data && e.notification.data.url) || APP_URL + '?character=seoa';
-  e.waitUntil(clients.openWindow(target));
+  const notifData = e.notification.data || {};
+  const target = notifData.url || APP_URL + '?character=seoa';
+  const character = notifData.character || 'seoa';
+
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (client.url.startsWith(APP_URL) && 'focus' in client) {
+          client.postMessage({ type: 'navigate', character });
+          return client.focus();
+        }
+      }
+      return clients.openWindow(target);
+    })
+  );
 });
