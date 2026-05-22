@@ -85,9 +85,12 @@ export default function App() {
       return raw ? JSON.parse(raw) : [];
     } catch { return []; }
   });
-  const [activeId, setActiveId] = useState<string | null>(
-    () => localStorage.getItem('companions_last_char')
-  );
+  const [activeId, setActiveId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const charParam = params.get('character');
+    if (charParam) return charParam;
+    return localStorage.getItem('companions_last_char');
+  });
   const [messagesByChar, setMessagesByChar] = useState<Record<string, Message[]>>(() => {
     try {
       const raw = localStorage.getItem(CACHE_CHARS_KEY);
@@ -164,6 +167,9 @@ export default function App() {
         localStorage.setItem(CACHE_CHARS_KEY, JSON.stringify(chars));
         // 현재 선택이 신규 캐릭터(캐시에 없던)면 그대로 유지, 완전 무효한 경우만 재선택
         setActiveId((prev) => {
+          const params = new URLSearchParams(window.location.search);
+          const charParam = params.get('character');
+          if (charParam && chars.find((c) => c.id === charParam)) return charParam;
           if (prev && chars.find((c) => c.id === prev)) return prev;
           return resolveActiveId(chars);
         });

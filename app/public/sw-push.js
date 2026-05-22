@@ -14,7 +14,7 @@ self.addEventListener('push', (e) => {
       badge: APP_URL + 'favicon.svg',
       vibrate: [200, 100, 200],
       requireInteraction: true,
-      data: { url: data.data?.url || APP_URL + '?character=seoa' }
+      data: { url: data.data?.url || APP_URL + '?character=seoa', character: data.data?.character || 'seoa' }
     })
   );
 });
