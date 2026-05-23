@@ -173,13 +173,15 @@ export default function App() {
     fetchCharacters()
       .then((chars) => {
         setCharacters(chars);
-        // avatar_url(base64) 제외 후 localStorage 저장 — 용량 초과 방지
+        // avatar_url 포함 저장 시도 → 용량 초과 시 avatar_url 제외 후 재시도
         try {
-          localStorage.setItem(CACHE_CHARS_KEY, JSON.stringify(
-            chars.map(c => ({ ...c, avatar_url: null }))
-          ));
+          localStorage.setItem(CACHE_CHARS_KEY, JSON.stringify(chars));
         } catch {
-          // 저장 실패해도 React state는 정상 — Supabase에서 이미 로드됨
+          try {
+            localStorage.setItem(CACHE_CHARS_KEY, JSON.stringify(
+              chars.map(c => ({ ...c, avatar_url: null }))
+            ));
+          } catch { /* 저장 실패해도 React state는 정상 */ }
         }
         // 현재 선택이 신규 캐릭터(캐시에 없던)면 그대로 유지, 완전 무효한 경우만 재선택
         setActiveId((prev) => {
@@ -300,10 +302,16 @@ export default function App() {
         id: activeCharacter.id,
         name: activeCharacter.name,
         color: activeCharacter.color,
-        // avatar_url 제외 — base64가 크면 localStorage 용량 초과
+        avatar_url: activeCharacter.avatar_url ?? null,
       }));
     } catch {
-      // localStorage 용량 초과 시 무시 (스플래시 색상만으로 충분)
+      try {
+        localStorage.setItem(PREVIEW_KEY, JSON.stringify({
+          id: activeCharacter.id,
+          name: activeCharacter.name,
+          color: activeCharacter.color,
+        }));
+      } catch { /* 무시 */ }
     }
   }, [activeCharacter]);
 
