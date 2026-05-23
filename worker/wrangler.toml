@@ -2,3 +2,10 @@ name = "seongmin-bot"
 main = "index.js"
 compatibility_date = "2024-01-01"
 account_id = "1b249037630288c305f84a362c577891"
+
+# Smart Placement 비활성화
+# → 활성화 시 Cloudflare가 Worker를 HKG 등 아시아 엣지로 라우팅
+# → OpenAI API가 해당 IP를 지원 안 하는 지역으로 판단해 에러
+# → mode = "smart"로 절대 바꾸지 말 것
+[placement]
+mode = "off"
