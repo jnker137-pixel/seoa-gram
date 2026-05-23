@@ -362,18 +362,22 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
   return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, false);
 }
 
-function cleanDeepseekOutput(text) {
+function cleanRoleplayOutput(text) {
   return text
-    // 날짜/타임스탬프 제거 (줄 앞에 붙는 패턴)
+    // 날짜/타임스탬프 제거
     .replace(/^\[?\d{4}[.\-년]\s*\d+[.\-월]\s*\d+[일\.]?[^\n]*\]\s*/gm, '')
-    // (행동 묘사) 제거 — 한글/영문 20자 이내
-    .replace(/\([가-힣a-zA-Z\s]{1,20}\)/g, '')
-    // *행동 묘사* 제거
-    .replace(/\*[가-힣a-zA-Z\s]{1,20}\*/g, '')
-    // 앞뒤 공백/빈줄 정리
+    // (행동 묘사) 제거 — 괄호 안 내용 불문, 50자 이하
+    .replace(/\([^)]{1,50}\)/g, '')
+    // （전각 괄호）제거
+    .replace(/（[^）]{1,50}）/g, '')
+    // *행동 묘사* 제거 — 별표 안 내용 불문, 50자 이하
+    .replace(/\*[^*]{1,50}\*/g, '')
+    // 잔여 공백/빈줄 정리
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
+// 하위 호환 alias
+const cleanDeepseekOutput = cleanRoleplayOutput;
 
 async function callOpenAICompatible(baseUrl, model, apiKey, systemPrompt, messages) {
   if (!apiKey) throw new Error(`API 키 미설정 — ${baseUrl.split("/")[2]}`);
