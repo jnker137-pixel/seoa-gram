@@ -127,7 +127,7 @@ export default function App() {
 
   useEffect(() => {
     if (!activeId || !messagesByChar[activeId]) return;
-    const t = setTimeout(() => setSplashVisible(false), 2000);
+    const t = setTimeout(() => setSplashVisible(false), 2500);
     return () => clearTimeout(t);
   }, [activeId, messagesByChar]);
 
