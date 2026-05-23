@@ -327,20 +327,31 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
     relBlock,
   ].filter(Boolean).join("\n");
 
+  const provider = character.api_provider || "claude";
+  const model = character.model;
+
+  // DeepSeek: 어시스턴트 히스토리에서 타임스탬프 제거 (날짜 출력 방지)
+  // + 행동묘사/날짜 금지 지침 주입
+  const timestampRe = /^\[\d{4}\.\d+\.\d+\. \d{2}:\d{2}\]\s*/;
+  const cleanHistory = (history) => history.slice(-12).map(m => ({
+    role: m.role,
+    content: m.role === "assistant" ? m.content.replace(timestampRe, "") : m.content,
+  }));
+
   // Layer 3: 최근 대화 (클라이언트 전달, 최근 12개)
   const messages = [
     ...clientHistory.slice(-12),
     { role: "user", content: text }
   ];
 
-  const provider = character.api_provider || "claude";
-  const model = character.model;
-
   if (provider === "gemini") {
     return callGemini(model || "gemini-3-flash-preview", systemPrompt, messages, env);
   }
   if (provider === "deepseek") {
-    return callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, systemPrompt, messages);
+    const dsPrompt = systemPrompt + "\n\n[출력 규칙] (행동 묘사) 또는 *행동* 형식 절대 금지. 응답 첫 줄에 날짜·시간 출력 금지.";
+    const dsMessages = [...cleanHistory(clientHistory), { role: "user", content: text }];
+    const raw = await callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, dsPrompt, dsMessages);
+    return cleanDeepseekOutput(raw);
   }
   if (provider === "grok") {
     return callOpenAICompatible("https://api.x.ai/v1/chat/completions", model || "grok-4.3", env.GROK_API_KEY, systemPrompt, messages);
@@ -348,7 +359,20 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
   if (provider === "openai") {
     return callOpenAICompatible("https://api.openai.com/v1/chat/completions", model || "gpt-5.5", env.OPENAI_API_KEY, systemPrompt, messages);
   }
-  return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, true);
+  return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, false);
+}
+
+function cleanDeepseekOutput(text) {
+  return text
+    // 날짜/타임스탬프 제거 (줄 앞에 붙는 패턴)
+    .replace(/^\[?\d{4}[.\-년]\s*\d+[.\-월]\s*\d+[일\.]?[^\n]*\]\s*/gm, '')
+    // (행동 묘사) 제거 — 한글/영문 20자 이내
+    .replace(/\([가-힣a-zA-Z\s]{1,20}\)/g, '')
+    // *행동 묘사* 제거
+    .replace(/\*[가-힣a-zA-Z\s]{1,20}\*/g, '')
+    // 앞뒤 공백/빈줄 정리
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 async function callOpenAICompatible(baseUrl, model, apiKey, systemPrompt, messages) {
@@ -381,7 +405,13 @@ async function callClaude(model, systemPrompt, messages, env, useWebSearch = fal
     body: JSON.stringify(body)
   });
   const data = await res.json();
-  if (data.type === "error") throw new Error(`Claude API: ${data.error.message}`);
+  // {type:"error",...} 또는 {error:{...}} 두 형태 모두 처리
+  if (data.type === "error" || data.error) {
+    throw new Error(`Claude API: ${data.error?.message || JSON.stringify(data.error)}`);
+  }
+  if (!Array.isArray(data.content)) {
+    throw new Error(`Claude API: 응답 content 없음 (stop_reason: ${data.stop_reason})`);
+  }
   return data.content.filter(c => c.type === "text").map(c => c.text).join("\n") || "응답 없음";
 }
 
@@ -401,6 +431,13 @@ async function callGemini(model, systemPrompt, messages, env) {
     parts: [{ text: m.content }]
   }));
 
+  const safetySettings = [
+    { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_NONE" },
+    { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_NONE" },
+    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+  ];
+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`,
     {
@@ -409,14 +446,8 @@ async function callGemini(model, systemPrompt, messages, env) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: cleanedPrompt }] },
         contents,
-        tools: [{ googleSearch: {} }],
-        safetySettings: [
-          { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-        ],
-        generationConfig: { maxOutputTokens: 4096 }
+        safetySettings,
+        generationConfig: { maxOutputTokens: 4096 },
       })
     }
   );
@@ -1226,7 +1257,7 @@ ${groupCtx}`;
   const messages = [{ role: "user", content: userMessage }];
 
   if (provider === "gemini") return callGemini(model || "gemini-3-flash-preview", systemPrompt, messages, env);
-  if (provider === "deepseek") return callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, systemPrompt, messages);
+  if (provider === "deepseek") return callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, systemPrompt, messages).then(cleanDeepseekOutput);
   if (provider === "grok") return callOpenAICompatible("https://api.x.ai/v1/chat/completions", model || "grok-4.3", env.GROK_API_KEY, systemPrompt, messages);
   if (provider === "openai") return callOpenAICompatible("https://api.openai.com/v1/chat/completions", model || "gpt-5.5", env.OPENAI_API_KEY, systemPrompt, messages);
   // claude / seoa-worker — 단체방은 web_search 제외 (빠른 응답 우선)
