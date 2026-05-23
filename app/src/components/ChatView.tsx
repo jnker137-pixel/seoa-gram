@@ -90,7 +90,7 @@ export default function ChatView({
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-gray-50">
+    <div className="flex flex-col h-full bg-gray-50">
       {/* Banner */}
       <header
         className="relative h-64 flex-shrink-0 overflow-hidden"
@@ -203,9 +203,6 @@ export default function ChatView({
             </svg>
           </button>
         </div>
-        <p className="text-[10px] text-gray-400 mt-1.5 text-center">
-          Enter로 전송 · Shift+Enter로 줄바꿈
-        </p>
       </div>
     </div>
   );
