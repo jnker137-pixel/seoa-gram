@@ -92,7 +92,10 @@ export default function ChatView({
   return (
     <div className="flex flex-col h-[100dvh] bg-gray-50">
       {/* Banner */}
-      <header className="relative h-64 flex-shrink-0 overflow-hidden">
+      <header
+        className="relative h-64 flex-shrink-0 overflow-hidden"
+        style={{ background: `linear-gradient(135deg, ${character.color}cc, ${character.color}44)` }}
+      >
         {character.avatar_url ? (
           <img
             src={character.avatar_url}
@@ -100,14 +103,9 @@ export default function ChatView({
             className="absolute inset-0 w-full h-full object-cover object-center"
           />
         ) : (
-          <div
-            className="absolute inset-0"
-            style={{ background: `linear-gradient(135deg, ${character.color}cc, ${character.color}44)` }}
-          >
-            <span className="absolute bottom-4 left-5 text-9xl font-black text-white/15 select-none leading-none">
-              {character.name.slice(0, 1)}
-            </span>
-          </div>
+          <span className="absolute bottom-4 left-5 text-9xl font-black text-white/15 select-none leading-none">
+            {character.name.slice(0, 1)}
+          </span>
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/75 pointer-events-none" />
 
