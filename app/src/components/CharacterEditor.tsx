@@ -368,7 +368,7 @@ export default function CharacterEditor({
                       reader.onload = (ev) => {
                         const img = new Image();
                         img.onload = () => {
-                          const MAX = 512;
+                          const MAX = 1024;
                           const scale = Math.min(1, MAX / Math.max(img.width, img.height));
                           const canvas = document.createElement('canvas');
                           canvas.width = img.width * scale;

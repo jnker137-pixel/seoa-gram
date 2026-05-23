@@ -173,7 +173,14 @@ export default function App() {
     fetchCharacters()
       .then((chars) => {
         setCharacters(chars);
-        localStorage.setItem(CACHE_CHARS_KEY, JSON.stringify(chars));
+        // avatar_url(base64) 제외 후 localStorage 저장 — 용량 초과 방지
+        try {
+          localStorage.setItem(CACHE_CHARS_KEY, JSON.stringify(
+            chars.map(c => ({ ...c, avatar_url: null }))
+          ));
+        } catch {
+          // 저장 실패해도 React state는 정상 — Supabase에서 이미 로드됨
+        }
         // 현재 선택이 신규 캐릭터(캐시에 없던)면 그대로 유지, 완전 무효한 경우만 재선택
         setActiveId((prev) => {
           const params = new URLSearchParams(window.location.search);
