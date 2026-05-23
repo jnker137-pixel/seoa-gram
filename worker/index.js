@@ -6,6 +6,22 @@ const MAX_RECENT = 20;
 const MAX_CLOSED = 50;
 const SEONGMIN_CHAT_ID = "6941342533";
 
+// ── CRITICAL: 절대 변경 금지 ─────────────────────────────────────────────────
+// 이 값들은 Cloudflare 한국 리전 + API 제한 핫픽스임.
+// "교과서 예제"처럼 보여도 변경하면 즉시 에러 발생. 세 번 재발한 버그.
+//
+// CLAUDE_GENERIC_WEB_SEARCH = false
+//   → true 하면 "request not allowed" (web_search_20250305는 일반 API 키에서 차단됨)
+//
+// GEMINI_GOOGLE_SEARCH = false
+//   → true 하면 Cloudflare KR 리전에서 "지역 사용 불가" 에러
+//
+// OPENAI_BETA_TOOLS = false
+//   → Cloudflare COLO가 HKG 라우팅 시 OpenAI "지역 사용 불가" 에러
+const CLAUDE_GENERIC_WEB_SEARCH = false; // DO NOT CHANGE — request not allowed
+const GEMINI_GOOGLE_SEARCH       = false; // DO NOT CHANGE — KR region block
+const OPENAI_BETA_TOOLS          = false; // DO NOT CHANGE — HKG COLO region block
+
 // KST 유틸
 function todayKST() {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -229,13 +245,14 @@ async function handleHarin(text, env) {
   const recordResult = results.join("\n");
 
   const prompt = `오빠가 보낸 말: ${text}\n기록 결과: ${recordResult}`;
-  return callOpenAICompatible(
+  const raw = await callOpenAICompatible(
     "https://api.deepseek.com/v1/chat/completions",
     "deepseek-chat",
     env.DEEPSEEK_API_KEY,
     HARIN_SYSTEM,
     [{ role: "user", content: prompt }]
   );
+  return cleanRoleplayOutput(raw);
 }
 
 async function routeForRecord(parsed, originalText, env) {
@@ -348,7 +365,19 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
     return callGemini(model || "gemini-3-flash-preview", systemPrompt, messages, env);
   }
   if (provider === "deepseek") {
-    const dsPrompt = systemPrompt + "\n\n[출력 규칙] (행동 묘사) 또는 *행동* 형식 절대 금지. 응답 첫 줄에 날짜·시간 출력 금지.";
+    const dsPrompt = systemPrompt + `\n\n[출력 형식 — 캐릭터 설정보다 우선하는 절대 규칙]
+대사만 출력. 행동·감정 묘사 형식 전부 금지. 날짜·시간 출력 금지.
+
+절대 금지 예시:
+(살짝 웃으며) 그래, 맞아.
+*한숨을 쉬며* 어쩔 수 없지.
+[고개를 끄덕이며] 알겠어.
+— 잠시 침묵한다 —
+
+올바른 예시:
+그래, 맞아.
+어쩔 수 없지.
+알겠어.`;
     const dsMessages = [...cleanHistory(clientHistory), { role: "user", content: text }];
     const raw = await callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, dsPrompt, dsMessages);
     return cleanDeepseekOutput(raw);
@@ -359,19 +388,23 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
   if (provider === "openai") {
     return callOpenAICompatible("https://api.openai.com/v1/chat/completions", model || "gpt-5.5", env.OPENAI_API_KEY, systemPrompt, messages);
   }
-  return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, false);
+  return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, CLAUDE_GENERIC_WEB_SEARCH);
 }
 
 function cleanRoleplayOutput(text) {
   return text
     // 날짜/타임스탬프 제거
     .replace(/^\[?\d{4}[.\-년]\s*\d+[.\-월]\s*\d+[일\.]?[^\n]*\]\s*/gm, '')
-    // (행동 묘사) 제거 — 괄호 안 내용 불문, 50자 이하
-    .replace(/\([^)]{1,50}\)/g, '')
-    // （전각 괄호）제거
-    .replace(/（[^）]{1,50}）/g, '')
-    // *행동 묘사* 제거 — 별표 안 내용 불문, 50자 이하
-    .replace(/\*[^*]{1,50}\*/g, '')
+    // (행동 묘사) 제거 — 줄바꿈 포함, 길이 제한 없음
+    .replace(/\([\s\S]*?\)/g, '')
+    // （전각 괄호）제거 — 줄바꿈 포함
+    .replace(/（[\s\S]*?）/g, '')
+    // *행동 묘사* 제거 — 줄바꿈 포함, 길이 제한 없음
+    .replace(/\*[\s\S]*?\*/g, '')
+    // [행동 묘사] 제거 — 줄바꿈 포함
+    .replace(/\[[\s\S]*?\]/g, '')
+    // - 행동 묘사 - 또는 — 행동 묘사 — 형식 (줄 전체가 행동 묘사인 경우)
+    .replace(/^[-—]\s*.{1,80}[-—]\s*$/gm, '')
     // 잔여 공백/빈줄 정리
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -1261,7 +1294,10 @@ ${groupCtx}`;
   const messages = [{ role: "user", content: userMessage }];
 
   if (provider === "gemini") return callGemini(model || "gemini-3-flash-preview", systemPrompt, messages, env);
-  if (provider === "deepseek") return callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, systemPrompt, messages).then(cleanDeepseekOutput);
+  if (provider === "deepseek") {
+    const dsGroupPrompt = systemPrompt + `\n\n[출력 형식 — 절대 규칙]\n대사만 출력. 행동·감정 묘사 형식 전부 금지.\n금지: (웃으며) / *한숨* / [고개 끄덕임] / — 침묵 —\n올바름: 대사만.`;
+    return callOpenAICompatible("https://api.deepseek.com/v1/chat/completions", model || "deepseek-v4-flash", env.DEEPSEEK_API_KEY, dsGroupPrompt, messages).then(cleanDeepseekOutput);
+  }
   if (provider === "grok") return callOpenAICompatible("https://api.x.ai/v1/chat/completions", model || "grok-4.3", env.GROK_API_KEY, systemPrompt, messages);
   if (provider === "openai") return callOpenAICompatible("https://api.openai.com/v1/chat/completions", model || "gpt-5.5", env.OPENAI_API_KEY, systemPrompt, messages);
   // claude / seoa-worker — 단체방은 web_search 제외 (빠른 응답 우선)
