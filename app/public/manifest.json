@@ -2,6 +2,7 @@
   "name": "seoa-gram",
   "short_name": "seoa-gram",
   "description": "AI 컴패니언 앱",
+  "lang": "ko",
   "start_url": "/seoa-gram/",
   "scope": "/seoa-gram/",
   "display": "standalone",
