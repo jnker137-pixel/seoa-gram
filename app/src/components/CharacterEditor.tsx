@@ -374,7 +374,7 @@ export default function CharacterEditor({
                           canvas.width = img.width * scale;
                           canvas.height = img.height * scale;
                           canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-                          set('avatar_url', canvas.toDataURL('image/jpeg', 0.85));
+                          set('avatar_url', canvas.toDataURL('image/jpeg', 0.99));
                         };
                         img.src = ev.target?.result as string;
                       };
