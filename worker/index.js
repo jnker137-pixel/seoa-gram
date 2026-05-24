@@ -444,6 +444,7 @@ async function callClaude(model, systemPrompt, messages, env, useWebSearch = fal
   const data = await res.json();
   // {type:"error",...} 또는 {error:{...}} 두 형태 모두 처리
   if (data.type === "error" || data.error) {
+    console.error(`[callClaude] HTTP ${res.status} model=${model} useWebSearch=${useWebSearch} error=${JSON.stringify(data.error)}`);
     throw new Error(`Claude API: ${data.error?.message || JSON.stringify(data.error)}`);
   }
   if (!Array.isArray(data.content)) {
