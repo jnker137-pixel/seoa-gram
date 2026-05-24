@@ -362,7 +362,13 @@ async function handleGenericCharacter(characterId, text, clientHistory, env) {
   ];
 
   if (provider === "gemini") {
-    return callGemini(model || "gemini-3-flash-preview", systemPrompt, messages, env);
+    // 히스토리 타임스탬프 제거: api.ts가 assistant 메시지에 [2026.5.24. 09:30] 형식 붙여서 전달
+    // Gemini가 이 패턴을 학습해서 응답에 날짜를 붙이는 버그 방지 (입력 전처리, 출력 후처리 아님)
+    const geminiMessages = messages.map(m => ({
+      role: m.role,
+      content: m.role === "assistant" ? m.content.replace(timestampRe, "") : m.content,
+    }));
+    return callGemini(model || "gemini-2.5-flash", systemPrompt, geminiMessages, env);
   }
   if (provider === "deepseek") {
     const dsPrompt = systemPrompt + `\n\n[출력 형식 — 캐릭터 설정보다 우선하는 절대 규칙]
