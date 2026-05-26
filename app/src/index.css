@@ -57,39 +57,3 @@ body {
 .typing-dot:nth-child(3) {
   animation-delay: 0.4s;
 }
-
-/* Banner blink animation — eyelid shadow sweep */
-@keyframes eyelid-blink {
-  0%, 87%, 100% { transform: scaleY(0); opacity: 0; }
-  89%, 93%      { transform: scaleY(1); opacity: 1; }
-  91%           { transform: scaleY(0.15); opacity: 0.5; } /* 더블 블링크 */
-  95%           { transform: scaleY(0); opacity: 0; }
-}
-
-.blink-top {
-  position: absolute;
-  left: 0; right: 0;
-  top: 22%;
-  height: 12%;
-  background: linear-gradient(to bottom, rgba(6, 3, 3, 0.88) 0%, rgba(6, 3, 3, 0.04) 100%);
-  border-radius: 0 0 40% 40%;
-  transform-origin: top center;
-  transform: scaleY(0);
-  opacity: 0;
-  animation: eyelid-blink 6s ease-in-out infinite;
-  pointer-events: none;
-}
-
-.blink-bottom {
-  position: absolute;
-  left: 0; right: 0;
-  top: 34%;
-  height: 5%;
-  background: linear-gradient(to top, rgba(6, 3, 3, 0.6) 0%, rgba(6, 3, 3, 0.02) 100%);
-  border-radius: 40% 40% 0 0;
-  transform-origin: bottom center;
-  transform: scaleY(0);
-  opacity: 0;
-  animation: eyelid-blink 6s ease-in-out infinite;
-  pointer-events: none;
-}
