@@ -320,7 +320,7 @@ async function callClaude(model, systemPrompt, messages, env) {
     },
     body: JSON.stringify({
       model, max_tokens: 2048, system: systemPrompt, messages,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      // web_search_20250305 금지 — 일반 API 키 "request not allowed" (HKG/ICN 무관)
     }),
   });
   const data = await res.json();
@@ -353,7 +353,7 @@ async function callGemini(model, systemPrompt, messages, env) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: cleanedPrompt }] },
         contents,
-        tools: [{ googleSearch: {} }],
+        // googleSearch 금지 — HKG IP "user location not supported" (placement=off여도 간헐적 HKG)
         safetySettings: [
           { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_NONE' },
           { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_NONE' },
