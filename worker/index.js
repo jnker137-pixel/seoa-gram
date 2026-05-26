@@ -23,6 +23,9 @@ export default {
     if (url.pathname === '/chat' && request.method === 'POST') {
       return handleChat(request, env, ctx);
     }
+    if (url.pathname === '/group-chat' && request.method === 'POST') {
+      return handleGroupChat(request, env, ctx);
+    }
 
     return new Response('OK');
   },
@@ -389,6 +392,166 @@ async function callOpenAICompat(baseUrl, model, apiKey, systemPrompt, messages) 
   const data = await res.json();
   if (data.error || !res.ok) throw new Error(`${baseUrl.split('/')[2]}: ${data.error?.message ?? res.status}`);
   return data.choices?.[0]?.message?.content || '응답 없음';
+}
+
+// ── 단체 대화방 ────────────────────────────────────────────────────────────
+async function handleGroupChat(request, env, ctx) {
+  const jsonHeaders = { ...CORS, 'Content-Type': 'application/json' };
+
+  let body;
+  try { body = await request.json(); }
+  catch { return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: jsonHeaders }); }
+
+  const text = (body.message || '').trim();
+  const roomId = body.room_id || 'main';
+  if (!text) return new Response(JSON.stringify({ responses: [] }), { headers: jsonHeaders });
+
+  try {
+    const [roomRows, profileRows, recentRows] = await Promise.all([
+      sbGet(`/rest/v1/group_rooms?id=eq.${roomId}&select=*&limit=1`, env),
+      sbGet('/rest/v1/user_profile?id=eq.seongmin&limit=1', env),
+      sbGet(`/rest/v1/group_messages?room_id=eq.${roomId}&select=character_id,character_name,content&order=created_at.desc&limit=8`, env),
+    ]);
+
+    const room = Array.isArray(roomRows) ? roomRows[0] : null;
+    if (!room) throw new Error('방을 찾을 수 없어');
+
+    const roomState = room.room_state || { topic: null, tone: 'casual', recent_events: [] };
+    const participantIds = (room.participant_ids || []).filter(id => id !== 'harin');
+    const profile = Array.isArray(profileRows) ? (profileRows[0] || {}) : {};
+    const recentMsgs = Array.isArray(recentRows) ? recentRows.reverse() : [];
+    const userName = profile.name || '성민';
+
+    if (participantIds.length === 0) throw new Error('참여 캐릭터가 없어');
+
+    const charRows = await sbGet(
+      `/rest/v1/characters?id=in.(${participantIds.map(id => `"${id}"`).join(',')})&select=id,name,color,system_prompt,api_provider,model`,
+      env
+    );
+    const characters = Array.isArray(charRows) ? charRows : [];
+
+    // 유저 메시지 저장
+    await sbPost('/rest/v1/group_messages',
+      { room_id: roomId, character_id: 'user', character_name: userName, content: text }, env
+    ).catch(() => {});
+
+    const groupCtx = buildGroupContextBlock(roomState, recentMsgs, userName);
+
+    // 모든 캐릭터 병렬 호출 (15초 타임아웃)
+    const settled = await Promise.allSettled(
+      characters.map(async (char) => {
+        const reply = await Promise.race([
+          callCharacterForGroup(char, text, groupCtx, userName, characters, env),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000)),
+        ]);
+        return { character_id: char.id, name: char.name, color: char.color || '#6366f1', reply };
+      })
+    );
+
+    const responses = settled.filter(r => r.status === 'fulfilled').map(r => r.value);
+
+    // 응답 저장 (await — fire-and-forget은 Cloudflare가 응답 후 즉시 kill함)
+    await Promise.all(
+      responses.map(r =>
+        sbPost('/rest/v1/group_messages',
+          { room_id: roomId, character_id: r.character_id, character_name: r.name, content: r.reply }, env
+        )
+      )
+    ).catch(() => {});
+
+    // 룸 상태 업데이트 (background)
+    ctx.waitUntil(updateGroupRoomState(roomId, roomState, text, responses, env));
+
+    return new Response(JSON.stringify({ responses, participant_ids: characters.map(c => c.id) }), { headers: jsonHeaders });
+  } catch (e) {
+    console.error('[group-chat error]', e.message);
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: jsonHeaders });
+  }
+}
+
+function buildGroupContextBlock(roomState, recentMsgs, userName) {
+  const parts = [];
+  if (roomState.topic) parts.push(`현재 주제: ${roomState.topic}`);
+  if (roomState.tone && roomState.tone !== 'casual') parts.push(`분위기: ${roomState.tone}`);
+  if (roomState.recent_events?.length > 0) parts.push(`흐름: ${roomState.recent_events.slice(-3).join(' → ')}`);
+  const stateStr = parts.length > 0 ? parts.join(' / ') : '(대화 시작)';
+
+  const recentStr = recentMsgs.slice(-4).map(m => {
+    const speaker = m.character_id === 'user' ? userName : (m.character_name || m.character_id);
+    return `${speaker}: ${m.content.slice(0, 100)}`;
+  }).join('\n');
+
+  return `[방 상태] ${stateStr}${recentStr ? `\n[최근 대화]\n${recentStr}` : ''}`;
+}
+
+async function callCharacterForGroup(char, userMessage, groupCtx, userName, allChars, env) {
+  const provider = char.api_provider || 'claude';
+  const model = resolveModel(provider, char.model);
+
+  const basePrompt = (char.system_prompt || '').replace(/\{\{user\}\}/gi, userName).replace(/\{\{char\}\}/gi, char.name);
+  const otherNames = allChars.filter(c => c.id !== char.id).map(c => c.name).join(', ');
+
+  const groupDirectives = `## 단체 대화방 행동 지침
+지금 이 공간엔 ${userName}${otherNames ? `, ${otherNames}` : ''}가 함께 있어.
+- 단톡 리듬: 짧고 임팩트 있게. 설명 말고 반응. 2-3문장.
+- 크로스 반응: 최근 대화에 다른 참여자 발언이 보이면 동조하거나 비틀거나 반박해도 좋아.
+- 개성 강화: 같은 주제도 너만의 시각으로.
+- 선택적 발화: 가장 반응하고 싶은 포인트 하나에만 집중.`;
+
+  const systemPrompt = `${basePrompt}\n\n${groupDirectives}\n\n${groupCtx}`;
+  const messages = [{ role: 'user', content: userMessage }];
+
+  if (provider === 'gemini') {
+    return callGemini(model || 'gemini-2.5-flash', systemPrompt, messages, env);
+  }
+  if (provider === 'deepseek') {
+    const dsPrompt = systemPrompt + '\n\n[절대 규칙] 대사만 출력. (웃으며) *한숨* [행동묘사] 형식 전부 금지.';
+    const raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', env.DEEPSEEK_API_KEY, dsPrompt, messages);
+    return cleanRoleplay(raw);
+  }
+  if (provider === 'grok') return callOpenAICompat('https://api.x.ai/v1/chat/completions', model || 'grok-3-mini', env.GROK_API_KEY, systemPrompt, messages);
+  if (provider === 'openai') return callOpenAICompat('https://api.openai.com/v1/chat/completions', model || 'gpt-4o-mini', env.OPENAI_API_KEY, systemPrompt, messages);
+  // claude / seoa-worker — 단체방은 web_search 제외 (빠른 응답 우선)
+  return callClaudeQuick(model || 'claude-sonnet-4-6', systemPrompt, messages, env);
+}
+
+async function callClaudeQuick(model, systemPrompt, messages, env) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model, max_tokens: 512, system: systemPrompt, messages }),
+  });
+  const data = await res.json();
+  if (data.type === 'error' || data.error || !res.ok) throw new Error(`Claude: ${data.error?.message ?? res.status}`);
+  return data.content?.filter(c => c.type === 'text').map(c => c.text).join('') || '응답 없음';
+}
+
+async function updateGroupRoomState(roomId, currentState, userMessage, responses, env) {
+  const summary = responses.map(r => `${r.name}: ${r.reply.slice(0, 60)}`).join(' | ');
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 200,
+        messages: [{ role: 'user', content: `단체 대화방 상태 업데이트. JSON만 반환.
+기존: ${JSON.stringify(currentState)}
+유저: "${userMessage}"
+반응: ${summary}
+형식: {"topic":"...","tone":"...","recent_events":["...","...","..."]}
+recent_events 최신 3개만.` }],
+      }),
+    });
+    const data = await res.json();
+    const match = (data.content?.[0]?.text || '').match(/\{[\s\S]*\}/);
+    if (!match) return;
+    const newState = JSON.parse(match[0]);
+    await fetch(`${env.SUPABASE_URL.trim()}/rest/v1/group_rooms?id=eq.${roomId}`, {
+      method: 'PATCH',
+      headers: { ...sbHeaders(env), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ room_state: newState, updated_at: new Date().toISOString() }),
+    });
+  } catch {}
 }
 
 // ── DeepSeek 롤플레이 억제 ────────────────────────────────────────────────
