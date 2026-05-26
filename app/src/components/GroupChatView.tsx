@@ -124,7 +124,7 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
       {/* Header */}
-      <header className="relative flex-shrink-0 bg-white border-b border-gray-200 px-5 pt-5 pb-4">
+      <header className="relative flex-shrink-0 bg-white border-b border-gray-200 px-5 pt-5 pb-4 md:pl-5 pl-14">
         <div className="flex items-start justify-between">
           <div>
             {/* 참여자 아바타 */}
