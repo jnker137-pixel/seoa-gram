@@ -19,10 +19,10 @@ return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, CLA
 `CLAUDE_GENERIC_WEB_SEARCH` 상수가 `false`로 고정되어 있음. **절대 true로 바꾸지 마.**
 → `web_search_20250305` 툴은 일반 Anthropic API 키에서 차단됨. 바꾸면 "request not allowed" 즉시 에러.
 
-### 2. Gemini — googleSearch tool 금지
-`callGemini()` 본문에 `tools: [{ googleSearch: {} }]` 추가 금지.
-`GEMINI_GOOGLE_SEARCH` 상수가 `false`로 고정되어 있음.
-→ Cloudflare Worker가 한국 리전 IP로 라우팅될 때 "지역 사용 불가" 에러 발생. 이전에 두 번 재발한 버그.
+### 2. Gemini — googleSearch tool 현재 활성화됨 ✅
+`callGemini()`에 `tools: [{ googleSearch: {} }]` 포함되어 있음.
+→ placement=off(ICN 서울) 상태에서는 정상 동작 확인 (2026-05-26).
+→ **placement를 smart로 바꾸면 HKG로 라우팅 → 즉시 차단.** placement=off 유지가 전제조건.
 
 ### 3. OpenAI/GPT — beta tools 금지
 GPT 호출 시 `tools`, `web_search_preview`, `reasoning` 등 beta 기능 추가 금지.
