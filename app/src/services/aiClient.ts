@@ -1,3 +1,4 @@
+// Worker 없이 브라우저 직접 AI API 호출
 import type { Character, CharacterContext, UserProfile } from '../types';
 import { supabase } from './supabase';
 
