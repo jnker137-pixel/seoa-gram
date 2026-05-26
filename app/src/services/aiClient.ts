@@ -5,7 +5,6 @@ import { supabase } from './supabase';
 // ── API Keys ──────────────────────────────────────────────────────────────────
 const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY as string;
 const GEMINI_API_KEY    = import.meta.env.VITE_GEMINI_API_KEY as string;
-const GEMINI_MODEL      = 'gemini-2.0-flash';
 const DEEPSEEK_API_KEY  = import.meta.env.VITE_DEEPSEEK_API_KEY as string;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -37,7 +36,7 @@ export async function sendMessageDirect(
       raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, messages);
       break;
     case 'gemini':
-      raw = await callGemini(model || GEMINI_MODEL, systemPrompt, messages);
+      raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, messages);
       break;
     case 'deepseek':
       raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, messages);
