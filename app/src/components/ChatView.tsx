@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Character, Message } from '../types';
 import TypingIndicator from './TypingIndicator';
 import { sendMessage } from '../services/api';
-import { saveMessage } from '../services/supabase';
 
 interface ChatViewProps {
   character: Character;
@@ -54,10 +53,6 @@ export default function ChatView({
     onMessagesChange(updatedMessages);
     setIsLoading(true);
 
-    if (character.id !== 'seoa') {
-      await saveMessage({ character_id: character.id, role: 'user', content: text }).catch(() => {});
-    }
-
     try {
       const reply = await sendMessage(character, text, updatedMessages);
       const assistantMsg: Message = {
@@ -69,10 +64,6 @@ export default function ChatView({
 
       const finalMessages = [...updatedMessages, assistantMsg];
       onMessagesChange(finalMessages);
-
-      if (character.id !== 'seoa') {
-        await saveMessage({ character_id: character.id, role: 'assistant', content: reply }).catch(() => {});
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '오류가 발생했어요');
       onMessagesChange(messages);
