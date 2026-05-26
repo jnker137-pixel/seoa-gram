@@ -4,8 +4,8 @@ import { supabase } from './supabase';
 
 // ── API Keys ──────────────────────────────────────────────────────────────────
 const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY as string;
-const GEMINI_API_KEY    = 'AIzaSyDXzQhqiw45iBwUAuSLP3sVOhLQ8YI5pec';
-const DEEPSEEK_API_KEY  = 'sk-b449232911ee4721844178f270f866fa';
+const GEMINI_API_KEY    = import.meta.env.VITE_GEMINI_API_KEY as string;
+const DEEPSEEK_API_KEY  = import.meta.env.VITE_DEEPSEEK_API_KEY as string;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
