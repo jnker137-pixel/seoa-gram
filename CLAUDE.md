@@ -11,13 +11,11 @@
 
 ## 절대 변경 금지 (이유 포함)
 
-### 1. Claude generic 캐릭터 — useWebSearch = false 고정
-`handleGenericCharacter` 마지막 줄:
-```js
-return callClaude(model || "claude-sonnet-4-6", systemPrompt, messages, env, CLAUDE_GENERIC_WEB_SEARCH);
-```
-`CLAUDE_GENERIC_WEB_SEARCH` 상수가 `false`로 고정되어 있음. **절대 true로 바꾸지 마.**
-→ `web_search_20250305` 툴은 일반 Anthropic API 키에서 차단됨. 바꾸면 "request not allowed" 즉시 에러.
+### 1. Claude — web_search_20250305 현재 활성화됨 ✅
+`callClaude()`에 `tools: [{ type: 'web_search_20250305', name: 'web_search' }]` 포함되어 있음.
+→ placement=off(ICN 서울) 상태에서 정상 동작 확인 (2026-05-26).
+→ 이전에 "일반 키 차단" 기록은 HKG 라우팅 때의 오판이었음.
+→ **placement를 smart로 바꾸면 즉시 차단.** placement=off 유지가 전제조건.
 
 ### 2. Gemini — googleSearch tool 현재 활성화됨 ✅
 `callGemini()`에 `tools: [{ googleSearch: {} }]` 포함되어 있음.

@@ -318,7 +318,10 @@ async function callClaude(model, systemPrompt, messages, env) {
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ model, max_tokens: 2048, system: systemPrompt, messages }),
+    body: JSON.stringify({
+      model, max_tokens: 2048, system: systemPrompt, messages,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+    }),
   });
   const data = await res.json();
   if (data.type === 'error' || data.error || !res.ok) {
