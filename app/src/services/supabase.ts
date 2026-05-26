@@ -123,3 +123,11 @@ export async function fetchGroupMessages(roomId: string, limit = 60): Promise<Gr
   if (error) throw error;
   return (data ?? []) as GroupMessage[];
 }
+
+export async function updateGroupParticipants(roomId: string, participantIds: string[]): Promise<void> {
+  const { error } = await supabase
+    .from('group_rooms')
+    .update({ participant_ids: participantIds, updated_at: new Date().toISOString() })
+    .eq('id', roomId);
+  if (error) throw error;
+}
