@@ -108,6 +108,13 @@ export default function ChatView({
           </span>
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/75 pointer-events-none" />
+        {/* 눈 깜빡임 오버레이 — 아바타 있을 때만 */}
+        {character.avatar_url && (
+          <>
+            <div className="blink-top" />
+            <div className="blink-bottom" />
+          </>
+        )}
 
         {/* Name + model */}
         <div className="absolute bottom-0 left-0 right-0 px-5 pb-4">
