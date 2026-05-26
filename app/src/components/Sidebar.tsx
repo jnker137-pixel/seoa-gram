@@ -29,38 +29,38 @@ export default function Sidebar({
   onOpenProfile,
 }: SidebarProps) {
   return (
-    <aside className="flex flex-col w-64 min-w-[64px] max-w-xs bg-gray-900 text-white h-[100dvh]">
+    <aside className="flex flex-col w-64 min-w-[64px] max-w-xs bg-white border-r border-gray-200 h-[100dvh]">
       {/* Header */}
-      <div className="px-4 py-5 border-b border-gray-700">
-        <h1 className="text-lg font-bold tracking-tight text-white">Companions</h1>
+      <div className="px-4 py-5 border-b border-gray-100">
+        <h1 className="text-lg font-bold tracking-tight text-gray-900">Companions</h1>
         <p className="text-xs text-gray-400 mt-0.5">AI 캐릭터 모음</p>
       </div>
 
       {/* Character list */}
-      <nav className="flex-1 overflow-y-auto py-3 space-y-1 px-2">
+      <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
         {/* 단체 대화방 */}
         <button
           onClick={() => onSelect(GROUP_ID)}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
             activeId === GROUP_ID
-              ? 'bg-white/10 text-white'
-              : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
+              ? 'bg-gray-100 text-gray-900'
+              : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
           }`}
         >
-          <div className="w-9 h-9 rounded-full flex items-center justify-center bg-gray-700 flex-shrink-0">
-            <svg className="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="w-9 h-9 rounded-full flex items-center justify-center bg-gray-100 flex-shrink-0">
+            <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           </div>
           <div className="flex-1 min-w-0">
             <span className="text-sm font-medium">단체 대화방</span>
-            <p className="text-[11px] text-gray-500">group</p>
+            <p className="text-[11px] text-gray-400">group</p>
           </div>
         </button>
 
         {/* 구분선 */}
-        <div className="border-t border-gray-700/50 my-1.5 mx-1" />
+        <div className="border-t border-gray-100 my-1.5 mx-1" />
 
         {characters.map((char) => {
           const isActive = char.id === activeId;
@@ -70,11 +70,10 @@ export default function Sidebar({
                 onClick={() => onSelect(char.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all pr-10 ${
                   isActive
-                    ? 'bg-white/10 text-white'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
                 }`}
               >
-                {/* Avatar */}
                 <div
                   className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 overflow-hidden"
                   style={{ backgroundColor: char.color }}
@@ -84,35 +83,26 @@ export default function Sidebar({
                       src={char.avatar_url}
                       alt={char.name}
                       className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display = 'none';
-                      }}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                     />
                   ) : (
                     <span className="text-white">{getInitials(char.name)}</span>
                   )}
                 </div>
 
-                {/* Name + badge */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-medium truncate">{char.name}</span>
-                  </div>
-                  <p className="text-[11px] text-gray-500 truncate">{char.api_provider}</p>
+                  <span className="text-sm font-medium truncate block">{char.name}</span>
+                  <p className="text-[11px] text-gray-400 truncate">{char.api_provider}</p>
                 </div>
               </button>
 
-              {/* 편집 버튼 - hover 시 또는 active 시 표시 */}
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEditCharacter(char);
-                }}
+                onClick={(e) => { e.stopPropagation(); onEditCharacter(char); }}
                 title="캐릭터 설정"
                 className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg transition-all
                   ${isActive
-                    ? 'opacity-60 hover:opacity-100 hover:bg-white/10 text-white'
-                    : 'opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-white/10 text-gray-400 hover:text-white'
+                    ? 'opacity-50 hover:opacity-100 hover:bg-gray-200 text-gray-600'
+                    : 'opacity-0 group-hover:opacity-50 hover:!opacity-100 hover:bg-gray-200 text-gray-400'
                   }`}
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -125,19 +115,17 @@ export default function Sidebar({
         })}
 
         {characters.length === 0 && (
-          <div className="text-center text-gray-500 text-sm py-8 px-4">
-            캐릭터가 없어요
-            <br />
-            아래에서 추가해보세요
+          <div className="text-center text-gray-400 text-sm py-8 px-4">
+            캐릭터가 없어요<br />아래에서 추가해보세요
           </div>
         )}
       </nav>
 
       {/* Bottom buttons */}
-      <div className="p-3 border-t border-gray-700 space-y-2">
+      <div className="p-3 border-t border-gray-100 space-y-1.5">
         <button
           onClick={onAddCharacter}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-sm font-medium transition-all"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium transition-all"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -146,7 +134,7 @@ export default function Sidebar({
         </button>
         <button
           onClick={onOpenProfile}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-gray-200 text-sm transition-all"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 text-sm transition-all"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
