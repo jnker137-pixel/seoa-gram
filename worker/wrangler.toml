@@ -3,9 +3,10 @@ main = "index.js"
 compatibility_date = "2024-01-01"
 account_id = "1b249037630288c305f84a362c577891"
 
-# Smart Placement 비활성화
-# → 활성화 시 Cloudflare가 Worker를 HKG 등 아시아 엣지로 라우팅
-# → OpenAI API가 해당 IP를 지원 안 하는 지역으로 판단해 에러
-# → mode = "smart"로 절대 바꾸지 말 것
+# placement = "off" 고정 — 절대 변경 금지
+# → mode="off" : Worker가 사용자(한국) 기준 ICN(서울)에서 실행 → 한국 IP로 API 호출
+# → mode="smart": Cloudflare가 HKG(홍콩)에 배치 → Gemini "user location not supported" 에러 발생
+#    (Gemini가 한국 IP는 허용하지만 HKG 데이터센터 IP는 차단함. 2026-05-25 확인)
+# → GPT도 한국 IP에서 정상 동작. HKG일 때만 OpenAI 에러 발생했음.
 [placement]
 mode = "off"

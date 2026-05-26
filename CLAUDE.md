@@ -49,9 +49,15 @@ return callGemini(model, systemPrompt, geminiMessages, env);
 → api.ts가 히스토리에 `[2026.5.24. 09:30]` 형식을 붙여서 전달 → Gemini가 이 패턴을 모방해 응답에 날짜 붙임.
 → **callGemini() 출력에 후처리 금지** (정상 응답 깨짐 위험). 입력 전처리만 허용.
 
-### 6. Gemini 모델 — gemini-2.5-flash 사용
-`gemini-3-flash-preview`는 Cloudflare KR 리전에서 "user location is not supported" 에러 발생.
-현재 기본값: `gemini-2.5-flash`. 절대 `gemini-3-flash-preview`로 되돌리지 마.
+### 6. Cloudflare placement — mode="off" 고정 (절대 "smart"로 바꾸지 마)
+`mode="smart"` → Cloudflare가 HKG(홍콩)에 Worker 배치 → Gemini "user location not supported" 에러.
+한국 IP는 Gemini 사용 가능하지만 HKG 데이터센터 IP는 차단됨. (2026-05-25 wrangler tail GEO 로그로 확인)
+`mode="off"` → Worker가 사용자(한국) 기준 ICN(서울)에서 실행 → 한국 IP로 Gemini 호출 → 정상.
+
+### 7. provider/model 불일치 방지
+`api_provider`를 바꿀 때 `model` 컬럼을 함께 바꾸지 않으면 오작동.
+Worker에 불일치 안전장치 추가됨 (provider=claude인데 model=gemini-*이면 null로 리셋 → 기본값 사용).
+캐릭터 DB 수정 시 provider와 model을 항상 같이 확인.
 
 ---
 
