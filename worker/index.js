@@ -69,10 +69,11 @@ async function handleChat(request, env, ctx) {
     // 6. DeepSeek 롤플레이 후처리
     const reply = needsClean(character.api_provider) ? cleanRoleplay(raw) : raw;
 
-    // 7. 대화 저장 (background — 응답 블로킹 없음)
+    // 7. 대화 저장 + L1 기억 갱신 (background — 응답 블로킹 없음)
     ctx.waitUntil(Promise.all([
       saveMessage(character_id, 'user', message, env),
       saveMessage(character_id, 'assistant', reply, env),
+      updateL1Memory(character_id, context, recentMsgs, message, reply, env),
     ]));
 
     return new Response(JSON.stringify({ reply }), { headers: jsonHeaders });
@@ -170,6 +171,41 @@ async function fetchEpisodic(characterId, embedding, env) {
 
 async function saveMessage(characterId, role, content, env) {
   await sbPost('/rest/v1/conversation_log', { character_id: characterId, role, content }, env);
+}
+
+async function updateL1Memory(characterId, currentContext, recentMsgs, userMsg, reply, env) {
+  const convo = [...recentMsgs.slice(-10),
+    { role: 'user', content: userMsg },
+    { role: 'assistant', content: reply },
+  ];
+
+  const prompt = `다음 대화를 읽고 캐릭터의 기억 슬롯을 업데이트해줘. JSON만 출력.
+
+현재 슬롯:
+relationship_summary: ${currentContext.relationship_summary || '없음'}
+memorable_moments: ${currentContext.memorable_moments || '없음'}
+mood: ${currentContext.mood || '없음'}
+
+최근 대화:
+${convo.map(m => `[${m.role === 'assistant' ? '캐릭터' : '유저'}] ${m.content.slice(0, 300)}`).join('\n')}
+
+형식:
+{"relationship_summary": "캐릭터-유저 관계 1-2줄", "memorable_moments": "기억할 순간 최대 3개", "mood": "캐릭터 현재 감정/태도 1줄"}`;
+
+  try {
+    const raw = await callClaude('claude-haiku-4-5-20251001', '너는 AI 캐릭터의 기억 관리자야. JSON으로만 응답해.', [{ role: 'user', content: prompt }], env);
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return;
+    const data = JSON.parse(match[0]);
+    // Supabase upsert (character_id unique 기준)
+    await fetch(`${env.SUPABASE_URL.trim()}/rest/v1/character_context?on_conflict=character_id`, {
+      method: 'POST',
+      headers: { ...sbHeaders(env), Prefer: 'return=minimal,resolution=merge-duplicates' },
+      body: JSON.stringify({ character_id: characterId, ...data }),
+    });
+  } catch (e) {
+    console.error('[L1 update error]', e.message);
+  }
 }
 
 // ── System prompt builder ─────────────────────────────────────────────────
