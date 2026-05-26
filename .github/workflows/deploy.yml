@@ -66,6 +66,8 @@ jobs:
 
       - name: Build
         working-directory: app
+        env:
+          VITE_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: npm run build
 
       - name: Upload artifact
