@@ -1,5 +1,5 @@
 // Worker 없이 브라우저 직접 AI API 호출
-import type { Character, CharacterContext, UserProfile } from '../types';
+import type { Character, CharacterContext, UserProfile, GroupResponse } from '../types';
 import { supabase } from './supabase';
 
 // ── API Keys ──────────────────────────────────────────────────────────────────
@@ -256,6 +256,154 @@ async function callOpenAICompat(
   const data = await res.json() as { error?: { message?: string }; choices?: { message?: { content?: string } }[] };
   if (!res.ok || data.error) throw new Error(`${new URL(baseUrl).hostname}: ${data.error?.message ?? res.status}`);
   return data.choices?.[0]?.message?.content || '응답 없음';
+}
+
+// ── Group Chat Entry ──────────────────────────────────────────────────────────
+export async function sendGroupMessageDirect(
+  roomId: string,
+  userMessage: string,
+): Promise<{ responses: GroupResponse[]; participantIds: string[] }> {
+  const { data: roomData } = await supabase
+    .from('group_rooms')
+    .select('participant_ids, room_state')
+    .eq('id', roomId)
+    .single();
+
+  const participantIds: string[] = roomData?.participant_ids ?? [];
+  const roomState = roomData?.room_state as Record<string, string> | null;
+
+  if (participantIds.length === 0) return { responses: [], participantIds: [] };
+
+  const [charsResult, userIdentity, recentResult] = await Promise.all([
+    supabase.from('characters').select('*').in('id', participantIds),
+    fetchUserIdentity(),
+    supabase
+      .from('group_messages')
+      .select('character_id, character_name, content')
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: false })
+      .limit(8),
+  ]);
+
+  const participants = (charsResult.data ?? []) as Character[];
+  const recentMsgs = (recentResult.data ?? []).reverse();
+  const userName = userIdentity?.name || '성민';
+
+  await supabase.from('group_messages').insert({
+    room_id: roomId,
+    character_id: 'user',
+    character_name: userName,
+    content: userMessage,
+  });
+
+  const today    = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const names    = participants.map(c => c.name).join(', ');
+  const recentCtx = recentMsgs
+    .map(m => `[${m.character_name || m.character_id}] ${m.content.slice(0, 200)}`)
+    .join('\n');
+  const roomCtx = roomState
+    ? [`주제: ${roomState['topic'] || ''}`, `분위기: ${roomState['tone'] || ''}`, `최근 흐름: ${roomState['recent_events'] || ''}`].filter(l => !l.endsWith(': ')).join('\n')
+    : '';
+
+  const results = await Promise.allSettled(
+    participants.map(async (char): Promise<GroupResponse> => {
+      const base = (char.system_prompt || `너는 ${char.name}이야.`)
+        .replace(/\{\{user\}\}/gi, userName)
+        .replace(/\{\{char\}\}/gi, char.name)
+        .trim();
+
+      const systemPrompt = [
+        base,
+        `오늘 날짜: ${today}`,
+        roomCtx ? `## 단체 대화방 맥락\n${roomCtx}` : '',
+        recentCtx ? `## 최근 대화\n${recentCtx}` : '',
+        `## 지금 네 역할\n- 참여자: ${names}\n- 성민의 새 메시지에 자연스럽게 반응해\n- 짧고 자연스럽게, ${char.name}답게`,
+      ].filter(Boolean).join('\n\n');
+
+      const msgs: ChatMessage[] = [{ role: 'user', content: userMessage }];
+      const provider = char.api_provider || 'claude';
+      const model    = resolveModel(provider, char.model);
+
+      let raw: string;
+      switch (provider) {
+        case 'claude':
+        case 'seoa-worker':
+          raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, msgs);
+          break;
+        case 'gemini':
+          raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, msgs);
+          break;
+        case 'deepseek':
+          raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, msgs);
+          break;
+        default:
+          raw = await callClaude('claude-sonnet-4-6', systemPrompt, msgs);
+      }
+
+      return {
+        character_id: char.id,
+        name: char.name,
+        color: char.color,
+        reply: provider === 'deepseek' ? cleanRoleplay(raw) : raw,
+      };
+    })
+  );
+
+  const responses: GroupResponse[] = results
+    .filter((r): r is PromiseFulfilledResult<GroupResponse> => r.status === 'fulfilled')
+    .map(r => r.value);
+
+  if (responses.length > 0) {
+    await supabase.from('group_messages').insert(
+      responses.map(r => ({
+        room_id: roomId,
+        character_id: r.character_id,
+        character_name: r.name,
+        content: r.reply,
+      }))
+    );
+  }
+
+  void updateGroupRoomState(roomId, roomState, userMessage, responses);
+
+  return { responses, participantIds };
+}
+
+async function updateGroupRoomState(
+  roomId: string,
+  current: Record<string, string> | null,
+  userMsg: string,
+  responses: GroupResponse[]
+) {
+  if (!ANTHROPIC_API_KEY) return;
+  const convo = [
+    `[성민] ${userMsg}`,
+    ...responses.map(r => `[${r.name}] ${r.reply}`),
+  ].join('\n');
+
+  const prompt = `다음 단체 대화를 읽고 방 상태를 업데이트해줘. JSON만 출력.
+
+현재 상태:
+topic: ${current?.['topic'] || '없음'}
+tone: ${current?.['tone'] || '없음'}
+recent_events: ${current?.['recent_events'] || '없음'}
+
+새 대화:
+${convo}
+
+형식:
+{"topic": "현재 주제 1줄", "tone": "대화 분위기 1줄", "recent_events": "최근 흐름 1-2줄"}`;
+
+  try {
+    const raw = await callClaude(
+      'claude-haiku-4-5-20251001',
+      '너는 단체 대화방 상태 관리자야. JSON으로만 응답해.',
+      [{ role: 'user', content: prompt }]
+    );
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return;
+    await supabase.from('group_rooms').update({ room_state: JSON.parse(match[0]) }).eq('id', roomId);
+  } catch { /* 실패해도 메인 기능에 영향 없음 */ }
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
