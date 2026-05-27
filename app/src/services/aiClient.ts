@@ -6,6 +6,7 @@ import { supabase } from './supabase';
 const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY as string;
 const GEMINI_API_KEY    = import.meta.env.VITE_GEMINI_API_KEY as string;
 const DEEPSEEK_API_KEY  = import.meta.env.VITE_DEEPSEEK_API_KEY as string;
+const OPENAI_API_KEY    = import.meta.env.VITE_OPENAI_API_KEY as string;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
@@ -30,16 +31,20 @@ export async function sendMessageDirect(
   const model    = resolveModel(provider, character.model);
   let raw: string;
 
+  const useSearch = character.tools_enabled ?? false;
   switch (provider) {
     case 'claude':
     case 'seoa-worker':
-      raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, messages);
+      raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, messages, useSearch);
       break;
     case 'gemini':
-      raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, messages);
+      raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, messages, useSearch);
       break;
     case 'deepseek':
       raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, messages);
+      break;
+    case 'openai':
+      raw = await callOpenAICompat('https://api.openai.com/v1/chat/completions', model || 'gpt-4o-mini', OPENAI_API_KEY, systemPrompt, messages);
       break;
     default:
       throw new Error(`지원하지 않는 프로바이더: ${provider}`);
@@ -195,7 +200,10 @@ ${convo.map(m => `[${m.role === 'assistant' ? '캐릭터' : '유저'}] ${m.conte
 }
 
 // ── API callers ────────────────────────────────────────────────────────────────
-async function callClaude(model: string, systemPrompt: string, messages: ChatMessage[]): Promise<string> {
+async function callClaude(model: string, systemPrompt: string, messages: ChatMessage[], useWebSearch = false): Promise<string> {
+  const body: Record<string, unknown> = { model, max_tokens: 2048, system: systemPrompt, messages };
+  // web_search_20250305 is server-side — Anthropic handles it, no tool_use loop needed
+  if (useWebSearch) body['tools'] = [{ type: 'web_search_20250305', name: 'web_search' }];
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -204,36 +212,40 @@ async function callClaude(model: string, systemPrompt: string, messages: ChatMes
       'content-type': 'application/json',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
-    body: JSON.stringify({ model, max_tokens: 2048, system: systemPrompt, messages }),
+    body: JSON.stringify(body),
   });
   const data = await res.json() as { type?: string; error?: { message?: string }; content?: { type: string; text: string }[] };
   if (!res.ok || data.error) throw new Error(`Claude: ${data.error?.message ?? res.status}`);
   return data.content?.filter(c => c.type === 'text').map(c => c.text).join('') || '응답 없음';
 }
 
-async function callGemini(model: string, systemPrompt: string, messages: ChatMessage[]): Promise<string> {
+async function callGemini(model: string, systemPrompt: string, messages: ChatMessage[], useGoogleSearch = false): Promise<string> {
   const cleanedPrompt = systemPrompt.replace(/^[-*•]\s+/gm, '').replace(/\n{3,}/g, '\n\n').trim();
   const contents = messages.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
 
+  const body: Record<string, unknown> = {
+    system_instruction: { parts: [{ text: cleanedPrompt }] },
+    contents,
+    safetySettings: [
+      { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+    ],
+    generationConfig: { maxOutputTokens: 2048 },
+  };
+  // googleSearch grounding — 브라우저 직접 호출(한국 IP)에서만 동작, Worker HKG IP에서 차단됨
+  if (useGoogleSearch) body['tools'] = [{ googleSearch: {} }];
+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: cleanedPrompt }] },
-        contents,
-        safetySettings: [
-          { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-        ],
-        generationConfig: { maxOutputTokens: 2048 },
-      }),
+      body: JSON.stringify(body),
     }
   );
   const data = await res.json() as { error?: { message?: string }; candidates?: { content?: { parts?: { text?: string }[] } }[] };
@@ -325,19 +337,23 @@ export async function sendGroupMessageDirect(
       const model    = resolveModel(provider, char.model);
 
       let raw: string;
+      const useSearch = char.tools_enabled ?? false;
       switch (provider) {
         case 'claude':
         case 'seoa-worker':
-          raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, msgs);
+          raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, msgs, useSearch);
           break;
         case 'gemini':
-          raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, msgs);
+          raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, msgs, useSearch);
           break;
         case 'deepseek':
           raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, msgs);
           break;
+        case 'openai':
+          raw = await callOpenAICompat('https://api.openai.com/v1/chat/completions', model || 'gpt-4o-mini', OPENAI_API_KEY, systemPrompt, msgs);
+          break;
         default:
-          raw = await callClaude('claude-sonnet-4-6', systemPrompt, msgs);
+          raw = await callClaude('claude-sonnet-4-6', systemPrompt, msgs, useSearch);
       }
 
       return {
