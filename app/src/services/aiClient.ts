@@ -11,7 +11,13 @@ const OPENAI_API_KEY    = import.meta.env.VITE_OPENAI_API_KEY as string;
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
 
-// ── Entry: 메시지 전송 ─────────────────────────────────────────────────────────
+interface OrchestratorTurn {
+  speaker: string;  // character id
+  target: string;   // 'user' | character id
+  hint: string;
+}
+
+// ── Entry: 1:1 메시지 전송 ─────────────────────────────────────────────────────
 export async function sendMessageDirect(
   character: Character,
   userMessage: string
@@ -52,7 +58,6 @@ export async function sendMessageDirect(
 
   const reply = provider === 'deepseek' ? cleanRoleplay(raw) : raw;
 
-  // 저장 + L1 갱신 (background, 응답 블로킹 없음)
   void Promise.all([
     saveConversationLog(character.id, 'user', userMessage),
     saveConversationLog(character.id, 'assistant', reply),
@@ -270,10 +275,138 @@ async function callOpenAICompat(
   return data.choices?.[0]?.message?.content || '응답 없음';
 }
 
+// ── Group Chat: Orchestrator ──────────────────────────────────────────────────
+
+// Haiku가 이번 턴 시나리오를 결정:
+// - 누가 말할지 (1~3명, 매번 모두가 답할 필요 없음)
+// - 어떤 순서로
+// - 누구를 향해 (user인지, 다른 캐릭터인지)
+async function orchestrateTurns(
+  participants: Character[],
+  userMessage: string,
+  recentCtx: string,
+  roomCtx: string,
+): Promise<OrchestratorTurn[]> {
+  if (!ANTHROPIC_API_KEY || participants.length === 0) {
+    return participants.map(c => ({ speaker: c.id, target: 'user', hint: '' }));
+  }
+
+  const participantDesc = participants
+    .map(c => `- ${c.name} (id: ${c.id}): ${(c.system_prompt || '').slice(0, 120).replace(/\n/g, ' ')}`)
+    .join('\n');
+
+  const prompt = `너는 단체 대화방 연출가야. 이번 턴 시나리오를 딱 정해줘.
+
+참여자:
+${participantDesc}
+
+방 맥락:
+${roomCtx || '없음'}
+
+최근 대화 흐름:
+${recentCtx || '없음'}
+
+성민이 방금 한 말:
+"${userMessage}"
+
+결정 기준:
+- 모두가 매번 답할 필요 없어. 1명만 말해도 충분히 자연스러워.
+- target이 다른 캐릭터 id면 그 캐릭터한테 직접 말하는 거야 (성민 무시 가능).
+- hint는 그 캐릭터가 이번에 어떤 방향으로 말할지 한 줄 (짧게).
+- 캐릭터끼리 주고받는 턴도 자연스러워.
+- 최소 1턴, 최대 3턴.
+
+JSON만 출력:
+{"turns": [{"speaker": "캐릭터id", "target": "user 또는 캐릭터id", "hint": "..."}]}`;
+
+  try {
+    const raw = await callClaude(
+      'claude-haiku-4-5-20251001',
+      '단체 대화방 연출가. JSON만 응답.',
+      [{ role: 'user', content: prompt }]
+    );
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('no json');
+    const parsed = JSON.parse(match[0]) as { turns?: OrchestratorTurn[] };
+    const validIds = new Set(participants.map(p => p.id));
+    const turns = (parsed.turns || []).filter(t => validIds.has(t.speaker) && t.target);
+    if (turns.length === 0) throw new Error('empty turns');
+    return turns;
+  } catch {
+    // fallback: 랜덤 순서로 전원 응답
+    return [...participants]
+      .sort(() => Math.random() - 0.5)
+      .map(c => ({ speaker: c.id, target: 'user', hint: '' }));
+  }
+}
+
+// ── Group Chat: 캐릭터 한 턴 실행 ─────────────────────────────────────────────
+async function callCharacterForGroupTurn(
+  char: Character,
+  userMessage: string,
+  recentCtx: string,
+  roomCtx: string,
+  priorTurnCtx: string,  // 이번 턴에 앞서 나온 다른 캐릭터들의 대사
+  hint: string,
+  targetChar: Character | null,  // null = 유저 타겟
+  userName: string,
+  today: string,
+): Promise<string> {
+  const base = (char.system_prompt || `너는 ${char.name}이야.`)
+    .replace(/\{\{user\}\}/gi, userName)
+    .replace(/\{\{char\}\}/gi, char.name)
+    .trim();
+
+  const targetLine = targetChar
+    ? `지금은 ${targetChar.name}한테 직접 말해. 성민은 잠시 옆에 있어.`
+    : `${userName}에게 반응해.`;
+
+  const systemPrompt = [
+    base,
+    `오늘 날짜: ${today}`,
+    roomCtx ? `## 단체 대화방 맥락\n${roomCtx}` : '',
+    recentCtx ? `## 최근 대화\n${recentCtx}` : '',
+    `## 이번 네 차례\n${targetLine}${hint ? `\n방향 힌트: ${hint}` : ''}\n짧고 자연스럽게, ${char.name}답게. 단체방에서 하는 말임.`,
+  ].filter(Boolean).join('\n\n');
+
+  // 유저 메시지 + 이번 턴에 앞서 나온 대사 포함
+  const userContent = priorTurnCtx
+    ? `[${userName}] ${userMessage}\n${priorTurnCtx}`
+    : `[${userName}] ${userMessage}`;
+
+  const msgs: ChatMessage[] = [{ role: 'user', content: userContent }];
+  const provider = char.api_provider || 'claude';
+  const model    = resolveModel(provider, char.model);
+  const useSearch = char.tools_enabled ?? false;
+
+  let raw: string;
+  switch (provider) {
+    case 'claude':
+    case 'seoa-worker':
+      raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, msgs, useSearch);
+      break;
+    case 'gemini':
+      raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, msgs, useSearch);
+      break;
+    case 'deepseek':
+      raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, msgs);
+      break;
+    case 'openai':
+      raw = await callOpenAICompat('https://api.openai.com/v1/chat/completions', model || 'gpt-4o-mini', OPENAI_API_KEY, systemPrompt, msgs);
+      break;
+    default:
+      raw = await callClaude('claude-sonnet-4-6', systemPrompt, msgs, useSearch);
+  }
+
+  return provider === 'deepseek' ? cleanRoleplay(raw) : raw;
+}
+
 // ── Group Chat Entry ──────────────────────────────────────────────────────────
 export async function sendGroupMessageDirect(
   roomId: string,
   userMessage: string,
+  onResponse?: (r: GroupResponse) => void,
+  onPlanReady?: (speakerIds: string[]) => void,
 ): Promise<{ responses: GroupResponse[]; participantIds: string[] }> {
   const { data: roomData } = await supabase
     .from('group_rooms')
@@ -298,9 +431,10 @@ export async function sendGroupMessageDirect(
   ]);
 
   const participants = (charsResult.data ?? []) as Character[];
-  const recentMsgs = (recentResult.data ?? []).reverse();
-  const userName = userIdentity?.name || '성민';
+  const recentMsgs   = (recentResult.data ?? []).reverse();
+  const userName     = userIdentity?.name || '성민';
 
+  // 유저 메시지 먼저 저장
   await supabase.from('group_messages').insert({
     room_id: roomId,
     character_id: 'user',
@@ -309,75 +443,61 @@ export async function sendGroupMessageDirect(
   });
 
   const today    = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const names    = participants.map(c => c.name).join(', ');
   const recentCtx = recentMsgs
     .map(m => `[${m.character_name || m.character_id}] ${m.content.slice(0, 200)}`)
     .join('\n');
   const roomCtx = roomState
-    ? [`주제: ${roomState['topic'] || ''}`, `분위기: ${roomState['tone'] || ''}`, `최근 흐름: ${roomState['recent_events'] || ''}`].filter(l => !l.endsWith(': ')).join('\n')
+    ? [`주제: ${roomState['topic'] || ''}`, `분위기: ${roomState['tone'] || ''}`, `최근 흐름: ${roomState['recent_events'] || ''}`]
+        .filter(l => !l.endsWith(': '))
+        .join('\n')
     : '';
 
-  const results = await Promise.allSettled(
-    participants.map(async (char): Promise<GroupResponse> => {
-      const base = (char.system_prompt || `너는 ${char.name}이야.`)
-        .replace(/\{\{user\}\}/gi, userName)
-        .replace(/\{\{char\}\}/gi, char.name)
-        .trim();
+  // Orchestrator: 이번 턴 시나리오 결정
+  const turns = await orchestrateTurns(participants, userMessage, recentCtx, roomCtx);
+  const charById = Object.fromEntries(participants.map(c => [c.id, c]));
 
-      const systemPrompt = [
-        base,
-        `오늘 날짜: ${today}`,
-        roomCtx ? `## 단체 대화방 맥락\n${roomCtx}` : '',
-        recentCtx ? `## 최근 대화\n${recentCtx}` : '',
-        `## 지금 네 역할\n- 참여자: ${names}\n- 성민의 새 메시지에 자연스럽게 반응해\n- 짧고 자연스럽게, ${char.name}답게`,
-      ].filter(Boolean).join('\n\n');
+  // 타이핑 인디케이터 업데이트 (계획된 화자만 표시)
+  const plannedSpeakers = [...new Set(turns.map(t => t.speaker))];
+  onPlanReady?.(plannedSpeakers);
 
-      const msgs: ChatMessage[] = [{ role: 'user', content: userMessage }];
-      const provider = char.api_provider || 'claude';
-      const model    = resolveModel(provider, char.model);
+  // Sequential relay: 앞 캐릭터 응답을 다음 캐릭터가 보고 반응
+  const thisRoundReplies: { name: string; reply: string }[] = [];
+  const responses: GroupResponse[] = [];
 
-      let raw: string;
-      const useSearch = char.tools_enabled ?? false;
-      switch (provider) {
-        case 'claude':
-        case 'seoa-worker':
-          raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, msgs, useSearch);
-          break;
-        case 'gemini':
-          raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, msgs, useSearch);
-          break;
-        case 'deepseek':
-          raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, msgs);
-          break;
-        case 'openai':
-          raw = await callOpenAICompat('https://api.openai.com/v1/chat/completions', model || 'gpt-4o-mini', OPENAI_API_KEY, systemPrompt, msgs);
-          break;
-        default:
-          raw = await callClaude('claude-sonnet-4-6', systemPrompt, msgs, useSearch);
-      }
+  for (const turn of turns) {
+    const char = charById[turn.speaker];
+    if (!char) continue;
 
-      return {
-        character_id: char.id,
-        name: char.name,
-        color: char.color,
-        reply: provider === 'deepseek' ? cleanRoleplay(raw) : raw,
-      };
-    })
-  );
+    const targetChar = turn.target !== 'user' ? (charById[turn.target] || null) : null;
 
-  const responses: GroupResponse[] = results
-    .filter((r): r is PromiseFulfilledResult<GroupResponse> => r.status === 'fulfilled')
-    .map(r => r.value);
+    // 이번 턴에 이미 나온 대사 컨텍스트로 주입
+    const priorTurnCtx = thisRoundReplies.length > 0
+      ? '\n[이번 대화]\n' + thisRoundReplies.map(r => `[${r.name}] ${r.reply}`).join('\n')
+      : '';
 
-  if (responses.length > 0) {
-    await supabase.from('group_messages').insert(
-      responses.map(r => ({
-        room_id: roomId,
-        character_id: r.character_id,
-        character_name: r.name,
-        content: r.reply,
-      }))
+    const reply = await callCharacterForGroupTurn(
+      char, userMessage, recentCtx, roomCtx,
+      priorTurnCtx, turn.hint, targetChar, userName, today
     );
+
+    const response: GroupResponse = {
+      character_id: char.id,
+      name: char.name,
+      color: char.color,
+      reply,
+    };
+
+    thisRoundReplies.push({ name: char.name, reply });
+    responses.push(response);
+
+    // UI에 즉시 표시 + DB 저장
+    onResponse?.(response);
+    await supabase.from('group_messages').insert({
+      room_id: roomId,
+      character_id: char.id,
+      character_name: char.name,
+      content: reply,
+    });
   }
 
   void updateGroupRoomState(roomId, roomState, userMessage, responses);

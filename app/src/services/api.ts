@@ -12,6 +12,8 @@ export async function sendMessage(
 export async function sendGroupMessage(
   roomId: string,
   message: string,
+  onResponse?: (r: GroupResponse) => void,
+  onPlanReady?: (speakerIds: string[]) => void,
 ): Promise<{ responses: GroupResponse[]; participantIds: string[] }> {
-  return sendGroupMessageDirect(roomId, message);
+  return sendGroupMessageDirect(roomId, message, onResponse, onPlanReady);
 }

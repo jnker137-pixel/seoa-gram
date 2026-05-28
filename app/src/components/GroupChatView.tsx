@@ -90,28 +90,32 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMsg]);
+    // 초기: 전원 타이핑 표시 (Orchestrator 결과 오기 전)
     setTypingIds(roomParticipantIds);
     setIsLoading(true);
 
     try {
-      const { responses, participantIds } = await sendGroupMessage(roomId, text);
+      const { participantIds } = await sendGroupMessage(
+        roomId,
+        text,
+        // onResponse: 생성 즉시 메시지 표시
+        (response) => {
+          setTypingIds(prev => prev.filter(id => id !== response.character_id));
+          setMessages(prev => [...prev, {
+            room_id: roomId,
+            character_id: response.character_id,
+            character_name: response.name,
+            content: response.reply,
+            created_at: new Date().toISOString(),
+          }]);
+        },
+        // onPlanReady: Orchestrator가 결정한 화자만 타이핑 표시
+        (speakerIds) => {
+          setTypingIds(speakerIds);
+        },
+      );
 
       if (participantIds.length > 0) setRoomParticipantIds(participantIds);
-
-      const sorted = [...responses].sort((a, b) => a.reply.length - b.reply.length);
-
-      for (let i = 0; i < sorted.length; i++) {
-        if (i > 0) await new Promise(r => setTimeout(r, 450));
-        const r = sorted[i];
-        setTypingIds(prev => prev.filter(id => id !== r.character_id));
-        setMessages(prev => [...prev, {
-          room_id: roomId,
-          character_id: r.character_id,
-          character_name: r.name,
-          content: r.reply,
-          created_at: new Date().toISOString(),
-        }]);
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '오류가 발생했어요');
     } finally {
