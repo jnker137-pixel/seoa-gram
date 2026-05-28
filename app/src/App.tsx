@@ -6,6 +6,7 @@ import {
   deleteCharacter,
   fetchMessages,
   clearMessages,
+  supabase,
 } from './services/supabase';
 import { subscribeToPush } from './services/pushSubscription';
 import Sidebar from './components/Sidebar';
@@ -225,6 +226,32 @@ export default function App() {
   useEffect(() => {
     if (activeId) localStorage.setItem('companions_last_char', activeId);
   }, [activeId]);
+
+  // 선톡 실시간 수신 — conversation_log에 assistant 메시지 INSERT 시 즉시 반영
+  useEffect(() => {
+    const channel = supabase
+      .channel('proactive-inbox')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'conversation_log',
+        filter: 'role=eq.assistant',
+      }, (payload) => {
+        const raw = payload.new as { id: number; character_id: string; role: 'assistant'; content: string; created_at: string };
+        if (!raw.content?.startsWith('[선톡]')) return;
+        const msg: Message = {
+          ...raw,
+          content: raw.content.replace(/^\[선톡\]\s*/, ''),
+        };
+        setMessagesByChar((prev) => {
+          const existing = prev[raw.character_id] ?? [];
+          if (existing.some((m) => m.id === msg.id)) return prev;
+          return { ...prev, [raw.character_id]: [...existing, msg] };
+        });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const handleSelectChar = (id: string) => {
     setActiveId(id);

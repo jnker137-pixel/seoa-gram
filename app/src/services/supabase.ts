@@ -57,7 +57,10 @@ export async function fetchMessages(
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
-  return (data ?? []).reverse() as Message[];
+  return (data ?? []).reverse().map((r) => ({
+    ...r,
+    content: r.content?.replace(/^\[선톡\]\s*/, '') ?? r.content,
+  })) as Message[];
 }
 
 export async function saveMessage(msg: Omit<Message, 'id' | 'created_at'>): Promise<void> {

@@ -300,7 +300,7 @@ async function orchestrateTurns(
   roomCtx: string,
 ): Promise<OrchestratorTurn[]> {
   if (!ANTHROPIC_API_KEY || participants.length === 0) {
-    return participants.map(c => ({ speaker: c.id, target: 'user', hint: '' }));
+    return participants.map(c => ({ speaker: c.id, target: 'user', intent: 'support', hint: '' }));
   }
 
   const participantDesc = participants
