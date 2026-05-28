@@ -8,6 +8,17 @@ const GEMINI_API_KEY    = import.meta.env.VITE_GEMINI_API_KEY as string;
 const DEEPSEEK_API_KEY  = import.meta.env.VITE_DEEPSEEK_API_KEY as string;
 const OPENAI_API_KEY    = import.meta.env.VITE_OPENAI_API_KEY as string;
 
+// ── Global System Layer ───────────────────────────────────────────────────────
+// 모든 캐릭터 프롬프트 앞에 공통으로 붙는 현실 앵커.
+// 개성 추가가 아니라 RP 드리프트 방지용 브레이크 시스템.
+const GLOBAL_SYSTEM_LAYER = `이 대화는 실제 메신저에서 일어나는 현실 기반 대화야.
+
+- 과도한 역할극, 허구 세계관 확장, 설정 놀이는 대화의 주도적 흐름이 되지 않아.
+- 대화는 성민의 일상, 감정, 관심사, 프로젝트, 농담을 자연스럽게 다뤄.
+- 각자 개성을 유지하되 실제 메신저 대화처럼 반응해. 연기하는 티 내지 마.
+- 관계의 깊이는 대화를 통해 천천히 형성돼. 과도한 애정 표현이나 급격한 관계 진전은 피해.
+- 성민은 항상 실제 참여자야. 관찰자나 청중이 아니야.`;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
 
@@ -139,7 +150,7 @@ function buildSystemPrompt(
     .replace(/\{\{char\}\}/gi, character.name)
     .trim();
 
-  const parts = [basePrompt || `너는 ${character.name}이야.`, `오늘 날짜: ${today}`];
+  const parts = [GLOBAL_SYSTEM_LAYER, basePrompt || `너는 ${character.name}이야.`, `오늘 날짜: ${today}`];
 
   const profileLines = [
     `## 대화 상대: ${userName}`,
@@ -370,6 +381,7 @@ async function callCharacterForGroupTurn(
     : `${userName}에게 반응해.`;
 
   const systemPrompt = [
+    GLOBAL_SYSTEM_LAYER,
     base,
     `오늘 날짜: ${today}`,
     roomCtx ? `## 단체 대화방 맥락\n${roomCtx}` : '',
