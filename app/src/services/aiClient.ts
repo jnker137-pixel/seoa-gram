@@ -14,6 +14,7 @@ interface ChatMessage { role: 'user' | 'assistant'; content: string }
 interface OrchestratorTurn {
   speaker: string;  // character id
   target: string;   // 'user' | character id
+  intent: string;   // tease | curiosity | challenge | comfort | joke | debate | support | explain
   hint: string;
 }
 
@@ -297,6 +298,10 @@ async function orchestrateTurns(
 
   const prompt = `너는 단체 대화방 연출가야. 이번 턴 시나리오를 딱 정해줘.
 
+핵심 원칙 — 성민 중심 중력장:
+이 단톡방은 성민이라는 사람 주변으로 형성된 관계장이야.
+캐릭터들끼리 대화할 수 있지만, 항상 성민의 발언/반응/상태와 연결되어야 해.
+
 참여자:
 ${participantDesc}
 
@@ -311,13 +316,15 @@ ${recentCtx || '없음'}
 
 결정 기준:
 - 모두가 매번 답할 필요 없어. 1명만 말해도 충분히 자연스러워.
-- target이 다른 캐릭터 id면 그 캐릭터한테 직접 말하는 거야 (성민 무시 가능).
-- hint는 그 캐릭터가 이번에 어떤 방향으로 말할지 한 줄 (짧게).
-- 캐릭터끼리 주고받는 턴도 자연스러워.
+- 캐릭터끼리 직접 대화할 수 있어. 단, 성민의 말에 대한 반응/해석/농담/의견 충돌 형태여야 자연스러워.
+- 캐릭터간 direct relay는 최대 1회까지. 2턴 이상 이어지면 성민에게 시선을 돌리는 흐름을 우선해.
+- 성민을 완전히 배제한 채 캐릭터들끼리만 이어가지 마.
+- hint는 딱 한 줄, 짧게. 말투까지 지정하지 마 — 캐릭터가 알아서 해.
+- intent는 아래 중 하나: tease / curiosity / challenge / comfort / joke / debate / support / explain
 - 최소 1턴, 최대 3턴.
 
 JSON만 출력:
-{"turns": [{"speaker": "캐릭터id", "target": "user 또는 캐릭터id", "hint": "..."}]}`;
+{"turns": [{"speaker": "캐릭터id", "target": "user 또는 캐릭터id", "intent": "...", "hint": "..."}]}`;
 
   try {
     const raw = await callClaude(
@@ -336,7 +343,7 @@ JSON만 출력:
     // fallback: 랜덤 순서로 전원 응답
     return [...participants]
       .sort(() => Math.random() - 0.5)
-      .map(c => ({ speaker: c.id, target: 'user', hint: '' }));
+      .map(c => ({ speaker: c.id, target: 'user', intent: 'support', hint: '' }));
   }
 }
 
@@ -348,6 +355,7 @@ async function callCharacterForGroupTurn(
   roomCtx: string,
   priorTurnCtx: string,  // 이번 턴에 앞서 나온 다른 캐릭터들의 대사
   hint: string,
+  intent: string,
   targetChar: Character | null,  // null = 유저 타겟
   userName: string,
   today: string,
@@ -366,7 +374,7 @@ async function callCharacterForGroupTurn(
     `오늘 날짜: ${today}`,
     roomCtx ? `## 단체 대화방 맥락\n${roomCtx}` : '',
     recentCtx ? `## 최근 대화\n${recentCtx}` : '',
-    `## 이번 네 차례\n${targetLine}${hint ? `\n방향 힌트: ${hint}` : ''}\n짧고 자연스럽게, ${char.name}답게. 단체방에서 하는 말임.`,
+    `## 이번 네 차례\n${targetLine}${intent ? `\n태도: ${intent}` : ''}${hint ? `\n방향: ${hint}` : ''}\n짧고 자연스럽게, ${char.name}답게. 단체방에서 하는 말임.`,
   ].filter(Boolean).join('\n\n');
 
   // 유저 메시지 + 이번 턴에 앞서 나온 대사 포함
@@ -477,7 +485,7 @@ export async function sendGroupMessageDirect(
 
     const reply = await callCharacterForGroupTurn(
       char, userMessage, recentCtx, roomCtx,
-      priorTurnCtx, turn.hint, targetChar, userName, today
+      priorTurnCtx, turn.hint, turn.intent || '', targetChar, userName, today
     );
 
     const response: GroupResponse = {
