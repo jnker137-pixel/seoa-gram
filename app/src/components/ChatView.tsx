@@ -69,7 +69,7 @@ export default function ChatView({
       onMessagesChange(messages);
     } finally {
       setIsLoading(false);
-      textareaRef.current?.focus();
+      // 자동 포커스 없음 — 읽은 후 직접 탭해서 입력
     }
   };
 

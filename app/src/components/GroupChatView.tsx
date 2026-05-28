@@ -37,17 +37,19 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  // Worker가 반환한 실제 방 참여자 ID (초기엔 harin 제외 전체)
   const [roomParticipantIds, setRoomParticipantIds] = useState<string[]>(
     characters.filter(c => c.id !== 'harin').map(c => c.id)
   );
   const [typingIds, setTypingIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [showMemberPanel, setShowMemberPanel] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const charById = Object.fromEntries(characters.map(c => [c.id, c]));
   const participants = roomParticipantIds.map(id => charById[id]).filter(Boolean) as Character[];
+  // harin은 단체방 미지원, 나머지 전체
+  const availableChars = characters.filter(c => c.id !== 'harin');
 
   useEffect(() => {
     Promise.all([
@@ -63,12 +65,22 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typingIds]);
 
+  const toggleMember = async (charId: string) => {
+    const isIn = roomParticipantIds.includes(charId);
+    const newIds = isIn
+      ? roomParticipantIds.filter(id => id !== charId)
+      : [...roomParticipantIds, charId];
+    setRoomParticipantIds(newIds);
+    await supabase.from('group_rooms').update({ participant_ids: newIds }).eq('id', roomId);
+  };
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text || isLoading) return;
 
     setInput('');
     setError(null);
+    setShowMemberPanel(false);
 
     const userMsg: GroupMessage = {
       room_id: roomId,
@@ -78,17 +90,14 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMsg]);
-    // 현재 알고 있는 참여자 전원 타이핑 표시
     setTypingIds(roomParticipantIds);
     setIsLoading(true);
 
     try {
       const { responses, participantIds } = await sendGroupMessage(roomId, text);
 
-      // Worker가 반환한 실제 참여자 목록으로 업데이트
       if (participantIds.length > 0) setRoomParticipantIds(participantIds);
 
-      // 짧은 응답부터 순서대로 표시 (빠른 모델 느낌)
       const sorted = [...responses].sort((a, b) => a.reply.length - b.reply.length);
 
       for (let i = 0; i < sorted.length; i++) {
@@ -108,7 +117,7 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
     } finally {
       setIsLoading(false);
       setTypingIds([]);
-      textareaRef.current?.focus();
+      // 자동 포커스 없음 — 읽은 후 직접 탭해서 입력
     }
   };
 
@@ -122,21 +131,71 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
       {/* Header */}
-      <header className="relative h-36 flex-shrink-0 overflow-hidden bg-gray-900">
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900" />
-        <div className="absolute bottom-0 left-0 right-0 px-5 pb-4">
-          <div className="flex items-center gap-1 mb-2">
-            {participants.map((char, i) => (
-              <div key={char.id} style={{ marginLeft: i > 0 ? '-6px' : 0, zIndex: participants.length - i }} className="relative">
-                <CharAvatar character={char} size="sm" />
-              </div>
-            ))}
+      <header className="flex-shrink-0 bg-white border-b border-gray-200 shadow-sm">
+        <div className="px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center">
+              {participants.slice(0, 4).map((char, i) => (
+                <div key={char.id} style={{ marginLeft: i > 0 ? '-6px' : 0, zIndex: 10 - i }} className="relative">
+                  <CharAvatar character={char} size="sm" />
+                </div>
+              ))}
+              {participants.length > 4 && (
+                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[9px] text-gray-500 font-bold" style={{ marginLeft: '-6px', zIndex: 5 }}>
+                  +{participants.length - 4}
+                </div>
+              )}
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-gray-900 leading-tight">단체 대화방</h2>
+              <p className="text-[11px] text-gray-400 leading-tight">
+                {participants.map(c => c.name).join(' · ')}
+              </p>
+            </div>
           </div>
-          <h2 className="text-xl font-bold text-white">단체 대화방</h2>
-          <p className="text-xs text-white/50 mt-0.5">
-            {participants.map(c => c.name).join(' · ')}
-          </p>
+          <button
+            onClick={() => setShowMemberPanel(v => !v)}
+            className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+              showMemberPanel
+                ? 'bg-gray-800 text-white border-gray-800'
+                : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+            }`}
+          >
+            멤버
+          </button>
         </div>
+
+        {/* 멤버 관리 패널 */}
+        {showMemberPanel && (
+          <div className="px-5 pb-3 border-t border-gray-100">
+            <p className="text-[11px] text-gray-400 mt-2 mb-2">탭해서 초대 · 강퇴</p>
+            <div className="flex flex-wrap gap-2">
+              {availableChars.map(char => {
+                const isIn = roomParticipantIds.includes(char.id);
+                return (
+                  <button
+                    key={char.id}
+                    onClick={() => toggleMember(char.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                      isIn
+                        ? 'text-white border-transparent'
+                        : 'bg-white text-gray-500 border-gray-300'
+                    }`}
+                    style={isIn ? { backgroundColor: char.color, borderColor: char.color } : {}}
+                  >
+                    <CharAvatar character={char} size="sm" />
+                    {char.name}
+                    {isIn && (
+                      <svg className="w-3 h-3 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </header>
 
       {/* Messages */}
@@ -188,7 +247,6 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
           );
         })}
 
-        {/* 타이핑 인디케이터: 실제 참여자만 */}
         {typingIds.map(charId => {
           const char = charById[charId];
           if (!char) return null;
