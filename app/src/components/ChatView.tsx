@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Character, Message } from '../types';
 import TypingIndicator from './TypingIndicator';
-import { sendMessage } from '../services/api';
+import { insertUserMessage } from '../services/supabase';
 
 interface ChatViewProps {
   character: Character;
@@ -35,6 +35,27 @@ export default function ChatView({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
+  const prevLengthRef = useRef(messages.length);
+
+  // 허브 응답 도착 시 로딩 해제
+  useEffect(() => {
+    if (messages.length > prevLengthRef.current) {
+      const last = messages[messages.length - 1];
+      if (last.role === 'assistant') setIsLoading(false);
+    }
+    prevLengthRef.current = messages.length;
+  }, [messages]);
+
+  // 60초 타임아웃 — 허브 무응답 시 안내
+  useEffect(() => {
+    if (!isLoading) return;
+    const t = setTimeout(() => {
+      setIsLoading(false);
+      setError('노트북 허브가 응답하지 않아요. 켜져 있는지 확인해줘.');
+    }, 60000);
+    return () => clearTimeout(t);
+  }, [isLoading]);
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text || isLoading) return;
@@ -49,27 +70,17 @@ export default function ChatView({
       created_at: new Date().toISOString(),
     };
 
-    const updatedMessages = [...messages, userMsg];
-    onMessagesChange(updatedMessages);
+    onMessagesChange([...messages, userMsg]);
     setIsLoading(true);
 
     try {
-      const reply = await sendMessage(character, text, updatedMessages);
-      const assistantMsg: Message = {
-        character_id: character.id,
-        role: 'assistant',
-        content: reply,
-        created_at: new Date().toISOString(),
-      };
-
-      const finalMessages = [...updatedMessages, assistantMsg];
-      onMessagesChange(finalMessages);
+      await insertUserMessage(character.id, text);
+      // 허브(poll.py)가 conversation_log 감지 → 응답 생성 → INSERT
+      // App.tsx realtime 구독이 받아서 messages prop 업데이트 → 위 useEffect가 로딩 해제
     } catch (e) {
-      setError(e instanceof Error ? e.message : '오류가 발생했어요');
+      setError(e instanceof Error ? e.message : '메시지 전송 실패');
       onMessagesChange(messages);
-    } finally {
       setIsLoading(false);
-      // 자동 포커스 없음 — 읽은 후 직접 탭해서 입력
     }
   };
 
