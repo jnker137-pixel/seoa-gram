@@ -39,6 +39,17 @@ export async function fetchMessages(
   characterId: string,
   limit = 30
 ): Promise<Message[]> {
+  // 서아는 텔레그램과 공유하는 prism_conversation_log 사용
+  if (characterId === 'seoa') {
+    const { data, error } = await supabase
+      .from('prism_conversation_log')
+      .select('id, role, content, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data ?? []).reverse().map((r) => ({ ...r, character_id: 'seoa' })) as Message[];
+  }
+
   const { data, error } = await supabase
     .from('conversation_log')
     .select('*')
@@ -50,15 +61,6 @@ export async function fetchMessages(
     ...r,
     content: r.content?.replace(/^\[선톡\]\s*/, '') ?? r.content,
   })) as Message[];
-}
-
-export async function insertUserMessage(characterId: string, content: string): Promise<void> {
-  const { error } = await supabase.from('conversation_log').insert({
-    character_id: characterId,
-    role: 'user',
-    content,
-  });
-  if (error) throw error;
 }
 
 export async function saveMessage(msg: Omit<Message, 'id' | 'created_at'>): Promise<void> {
