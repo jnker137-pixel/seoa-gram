@@ -2,7 +2,7 @@
 import type { Character, CharacterContext, UserProfile, GroupResponse } from '../types';
 import { supabase } from './supabase';
 
-// ── API Keys ──────────────────────────────────────────────────────────────────
+// ── API Keys (DEEPSEEK_API_KEY 시크릿 재등록 후 재배포 트리거) ──────────────────
 const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY as string;
 const GEMINI_API_KEY    = import.meta.env.VITE_GEMINI_API_KEY as string;
 const DEEPSEEK_API_KEY  = import.meta.env.VITE_DEEPSEEK_API_KEY as string;
