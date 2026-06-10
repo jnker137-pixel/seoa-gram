@@ -111,11 +111,11 @@ async function saveConversationLog(characterId: string, role: string, content: s
 async function embedText(text: string): Promise<number[] | null> {
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'models/text-embedding-004', content: { parts: [{ text }] } }),
+        body: JSON.stringify({ model: 'models/gemini-embedding-001', content: { parts: [{ text }] }, outputDimensionality: 768 }),
       }
     );
     const data = await res.json() as { embedding?: { values?: number[] } };
