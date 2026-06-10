@@ -156,6 +156,7 @@ function buildSystemPrompt(
     `## 대화 상대: ${userName}`,
     userIdentity?.personality       ?? '',
     userIdentity?.investment_style  ? `[투자 성향] ${userIdentity.investment_style}` : '',
+    userIdentity?.notes             ? `[성민에 대한 메모] ${userIdentity.notes}` : '',
   ].filter(Boolean);
   if (profileLines.length > 1) parts.push(profileLines.join('\n'));
 

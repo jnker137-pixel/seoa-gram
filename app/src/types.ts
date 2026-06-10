@@ -35,6 +35,7 @@ export interface UserProfile {
   personality: string | null;
   investment_style: string | null;
   lifestyle: string | null;
+  notes: string | null;
   updated_at?: string;
 }
 

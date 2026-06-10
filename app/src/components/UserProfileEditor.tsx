@@ -12,6 +12,7 @@ const DEFAULT_PROFILE: UserProfile = {
   personality: null,
   investment_style: null,
   lifestyle: null,
+  notes: null,
 };
 
 export default function UserProfileEditor({ onClose }: Props) {
@@ -91,6 +92,17 @@ export default function UserProfileEditor({ onClose }: Props) {
               className="w-full bg-gray-800 rounded-xl px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
               value={profile.investment_style ?? ''}
               onChange={(e) => setProfile((p) => ({ ...p, investment_style: e.target.value || null }))}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">메모 <span className="text-gray-600">(공식 클로드 앱이 기록한 내용 포함, 모든 캐릭터 참고)</span></label>
+            <textarea
+              rows={4}
+              placeholder="공식 클로드 앱과의 대화에서 알게 된 것, 캐릭터들이 알았으면 하는 최근 맥락 등..."
+              className="w-full bg-gray-800 rounded-xl px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              value={profile.notes ?? ''}
+              onChange={(e) => setProfile((p) => ({ ...p, notes: e.target.value || null }))}
             />
           </div>
         </div>
