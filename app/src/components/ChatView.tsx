@@ -126,12 +126,12 @@ export default function ChatView({
             >
               <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[92%]`}>
                 <div
-                  className={`px-4 py-2.5 rounded-2xl text-base leading-relaxed whitespace-pre-wrap break-words ${
+                  className={`px-4 py-2.5 rounded-2xl text-base leading-relaxed whitespace-pre-wrap break-words shadow-sm ${
                     isUser
-                      ? 'text-white rounded-br-sm'
-                      : 'bg-white text-gray-800 rounded-bl-sm border border-gray-100 shadow-sm'
+                      ? 'bg-white text-gray-800 border border-gray-100 rounded-br-sm'
+                      : 'text-white rounded-bl-sm'
                   }`}
-                  style={isUser ? { backgroundColor: character.color } : {}}
+                  style={isUser ? {} : { backgroundColor: character.color }}
                 >
                   {msg.content}
                 </div>
