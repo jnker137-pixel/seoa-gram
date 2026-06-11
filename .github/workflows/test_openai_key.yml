@@ -1,6 +1,9 @@
 name: OpenAI 키 테스트 (임시)
 
 on:
+  push:
+    paths:
+      - '.github/workflows/test_openai_key.yml'
   workflow_dispatch:
 
 jobs:
