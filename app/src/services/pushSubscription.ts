@@ -26,13 +26,13 @@ export async function subscribeToPush(clientId: string): Promise<string> {
   }
 
   const sub = subscription.toJSON();
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions`, {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?on_conflict=client_id,endpoint`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      Prefer: 'return=minimal',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
     },
     body: JSON.stringify({
       client_id: clientId,
