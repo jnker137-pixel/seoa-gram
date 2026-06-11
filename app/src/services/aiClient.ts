@@ -50,22 +50,27 @@ export async function sendMessageDirect(
   let raw: string;
 
   const useSearch = character.tools_enabled ?? false;
-  switch (provider) {
-    case 'claude':
-    case 'seoa-worker':
-      raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, messages, useSearch);
-      break;
-    case 'gemini':
-      raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, messages, useSearch);
-      break;
-    case 'deepseek':
-      raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, messages);
-      break;
-    case 'openai':
-      raw = await callOpenAICompat('https://api.openai.com/v1/chat/completions', model || 'gpt-4o-mini', OPENAI_API_KEY, systemPrompt, messages);
-      break;
-    default:
-      throw new Error(`지원하지 않는 프로바이더: ${provider}`);
+  try {
+    switch (provider) {
+      case 'claude':
+      case 'seoa-worker':
+        raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, messages, useSearch);
+        break;
+      case 'gemini':
+        raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, messages, useSearch);
+        break;
+      case 'deepseek':
+        raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, messages);
+        break;
+      case 'openai':
+        raw = await callOpenAICompat('https://api.openai.com/v1/chat/completions', model || 'gpt-4o-mini', OPENAI_API_KEY, systemPrompt, messages);
+        break;
+      default:
+        throw new Error(`지원하지 않는 프로바이더: ${provider}`);
+    }
+  } catch (e) {
+    void logClientError(character.id, provider, e instanceof Error ? e.message : String(e));
+    throw e;
   }
 
   const reply = provider === 'deepseek' ? cleanRoleplay(raw) : raw;
@@ -105,6 +110,30 @@ async function fetchRecentMessages(characterId: string): Promise<ChatMessage[]> 
 
 async function saveConversationLog(characterId: string, role: string, content: string) {
   await supabase.from('conversation_log').insert({ character_id: characterId, role, content });
+}
+
+// AI 호출 실패 시 진단용 로그 (best-effort, 실패해도 무시)
+async function logClientError(characterId: string, provider: string, message: string) {
+  try {
+    await supabase.from('client_error_log').insert({ character_id: characterId, provider, error_message: message.slice(0, 500) });
+  } catch { /* 로깅 실패는 무시 */ }
+}
+
+// 모바일 네트워크 전환(wifi↔LTE) 등으로 인한 간헐적 "Failed to fetch" 대응
+async function fetchWithRetry(url: string, options: RequestInit, retries = 2): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.status >= 500 && attempt < retries) {
+        await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      if (attempt >= retries) throw e;
+      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+    }
+  }
 }
 
 // ── Embedding + Episodic ──────────────────────────────────────────────────────
@@ -222,7 +251,7 @@ async function callClaude(model: string, systemPrompt: string, messages: ChatMes
   const body: Record<string, unknown> = { model, max_tokens: 2048, system: systemPrompt, messages };
   // web_search_20250305 is server-side — Anthropic handles it, no tool_use loop needed
   if (useWebSearch) body['tools'] = [{ type: 'web_search_20250305', name: 'web_search' }];
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'x-api-key': ANTHROPIC_API_KEY,
@@ -232,7 +261,7 @@ async function callClaude(model: string, systemPrompt: string, messages: ChatMes
     },
     body: JSON.stringify(body),
   });
-  const data = await res.json() as { type?: string; error?: { message?: string }; content?: { type: string; text: string }[] };
+  const data = await res.json().catch(() => ({ error: { message: `HTTP ${res.status} ${res.statusText}` } })) as { type?: string; error?: { message?: string }; content?: { type: string; text: string }[] };
   if (!res.ok || data.error) throw new Error(`Claude: ${data.error?.message ?? res.status}`);
   return data.content?.filter(c => c.type === 'text').map(c => c.text).join('') || '응답 없음';
 }
@@ -258,7 +287,7 @@ async function callGemini(model: string, systemPrompt: string, messages: ChatMes
   // googleSearch grounding — 브라우저 직접 호출(한국 IP)에서만 동작, Worker HKG IP에서 차단됨
   if (useGoogleSearch) body['tools'] = [{ googleSearch: {} }];
 
-  const res = await fetch(
+  const res = await fetchWithRetry(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
     {
       method: 'POST',
@@ -266,7 +295,7 @@ async function callGemini(model: string, systemPrompt: string, messages: ChatMes
       body: JSON.stringify(body),
     }
   );
-  const data = await res.json() as { error?: { message?: string }; candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const data = await res.json().catch(() => ({ error: { message: `HTTP ${res.status} ${res.statusText}` } })) as { error?: { message?: string }; candidates?: { content?: { parts?: { text?: string }[] } }[] };
   if (!res.ok || data.error) throw new Error(`Gemini: ${data.error?.message ?? res.status}`);
   return data.candidates?.[0]?.content?.parts?.filter(p => p.text).map(p => p.text).join('') || '응답 없음';
 }
@@ -278,12 +307,12 @@ async function callOpenAICompat(
   systemPrompt: string,
   messages: ChatMessage[]
 ): Promise<string> {
-  const res = await fetch(baseUrl, {
+  const res = await fetchWithRetry(baseUrl, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, max_tokens: 2048, messages: [{ role: 'system', content: systemPrompt }, ...messages] }),
   });
-  const data = await res.json() as { error?: { message?: string }; choices?: { message?: { content?: string } }[] };
+  const data = await res.json().catch(() => ({ error: { message: `HTTP ${res.status} ${res.statusText}` } })) as { error?: { message?: string }; choices?: { message?: { content?: string } }[] };
   if (!res.ok || data.error) throw new Error(`${new URL(baseUrl).hostname}: ${data.error?.message ?? res.status}`);
   return data.choices?.[0]?.message?.content || '응답 없음';
 }
@@ -401,22 +430,27 @@ async function callCharacterForGroupTurn(
   const useSearch = char.tools_enabled ?? false;
 
   let raw: string;
-  switch (provider) {
-    case 'claude':
-    case 'seoa-worker':
-      raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, msgs, useSearch);
-      break;
-    case 'gemini':
-      raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, msgs, useSearch);
-      break;
-    case 'deepseek':
-      raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, msgs);
-      break;
-    case 'openai':
-      raw = await callOpenAICompat('https://api.openai.com/v1/chat/completions', model || 'gpt-4o-mini', OPENAI_API_KEY, systemPrompt, msgs);
-      break;
-    default:
-      raw = await callClaude('claude-sonnet-4-6', systemPrompt, msgs, useSearch);
+  try {
+    switch (provider) {
+      case 'claude':
+      case 'seoa-worker':
+        raw = await callClaude(model || 'claude-sonnet-4-6', systemPrompt, msgs, useSearch);
+        break;
+      case 'gemini':
+        raw = await callGemini(model || 'gemini-2.5-flash', systemPrompt, msgs, useSearch);
+        break;
+      case 'deepseek':
+        raw = await callOpenAICompat('https://api.deepseek.com/v1/chat/completions', model || 'deepseek-chat', DEEPSEEK_API_KEY, systemPrompt, msgs);
+        break;
+      case 'openai':
+        raw = await callOpenAICompat('https://api.openai.com/v1/chat/completions', model || 'gpt-4o-mini', OPENAI_API_KEY, systemPrompt, msgs);
+        break;
+      default:
+        raw = await callClaude('claude-sonnet-4-6', systemPrompt, msgs, useSearch);
+    }
+  } catch (e) {
+    void logClientError(char.id, provider, e instanceof Error ? e.message : String(e));
+    throw e;
   }
 
   return provider === 'deepseek' ? cleanRoleplay(raw) : raw;

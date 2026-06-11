@@ -403,6 +403,7 @@ export default function App() {
             <GroupChatView characters={characters} roomId="main" />
           ) : activeCharacter ? (
             <ChatView
+              key={activeCharacter.id}
               character={activeCharacter}
               messages={activeMessages}
               onMessagesChange={(msgs) => handleMessagesChange(activeCharacter.id, msgs)}

@@ -3,6 +3,7 @@ import type { Character, GroupMessage } from '../types';
 import { fetchGroupMessages, supabase } from '../services/supabase';
 import { sendGroupMessage } from '../services/api';
 import TypingIndicator from './TypingIndicator';
+import CopyButton from './CopyButton';
 
 interface GroupChatViewProps {
   characters: Character[];
@@ -222,7 +223,10 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
                   <div className="px-4 py-2.5 rounded-2xl rounded-br-sm text-white text-base leading-relaxed whitespace-pre-wrap break-words bg-indigo-500">
                     {msg.content}
                   </div>
-                  <span className="text-[10px] text-gray-400 mt-0.5 px-1">{formatTime(msg.created_at)}</span>
+                  <div className="flex items-center gap-1.5 mt-0.5 px-1">
+                    <span className="text-[10px] text-gray-400">{formatTime(msg.created_at)}</span>
+                    <CopyButton text={msg.content} />
+                  </div>
                 </div>
               </div>
             );
@@ -245,7 +249,10 @@ export default function GroupChatView({ characters, roomId = 'main' }: GroupChat
                 <div className="px-4 py-2.5 rounded-2xl rounded-bl-sm bg-white text-gray-800 text-base leading-relaxed whitespace-pre-wrap break-words border border-gray-100 shadow-sm">
                   {msg.content}
                 </div>
-                <span className="text-[10px] text-gray-400 mt-0.5 px-1">{formatTime(msg.created_at)}</span>
+                <div className="flex items-center gap-1.5 mt-0.5 px-1">
+                  <span className="text-[10px] text-gray-400">{formatTime(msg.created_at)}</span>
+                  <CopyButton text={msg.content} />
+                </div>
               </div>
             </div>
           );

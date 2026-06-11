@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Character, Message } from '../types';
 import TypingIndicator from './TypingIndicator';
+import CopyButton from './CopyButton';
 import { sendMessage } from '../services/api';
 
 interface ChatViewProps {
@@ -135,11 +136,14 @@ export default function ChatView({
                 >
                   {msg.content}
                 </div>
-                {msg.created_at && (
-                  <span className="text-[10px] text-gray-400 mt-1 px-1">
-                    {formatTime(msg.created_at)}
-                  </span>
-                )}
+                <div className="flex items-center gap-1.5 mt-1 px-1">
+                  {msg.created_at && (
+                    <span className="text-[10px] text-gray-400">
+                      {formatTime(msg.created_at)}
+                    </span>
+                  )}
+                  <CopyButton text={msg.content} />
+                </div>
               </div>
             </div>
           );
