@@ -75,11 +75,13 @@ export async function sendMessageDirect(
 
   const reply = provider === 'deepseek' ? cleanRoleplay(raw) : raw;
 
-  void Promise.all([
+  // 대화 로그는 재시도까지 기다려서 저장 — fire-and-forget이면 네트워크 에러 시
+  // 한쪽만 저장되어 다음 fetch에서 메시지가 사라진 것처럼 보임
+  await Promise.all([
     saveConversationLog(character.id, 'user', userMessage),
     saveConversationLog(character.id, 'assistant', reply),
-    updateL1Memory(character.id, context, recentMsgs, userMessage, reply),
   ]);
+  void updateL1Memory(character.id, context, recentMsgs, userMessage, reply);
 
   return reply;
 }
@@ -109,7 +111,7 @@ async function fetchRecentMessages(characterId: string): Promise<ChatMessage[]> 
 }
 
 async function saveConversationLog(characterId: string, role: string, content: string) {
-  await supabase.from('conversation_log').insert({ character_id: characterId, role, content });
+  await insertWithRetry('conversation_log', { character_id: characterId, role, content });
 }
 
 // AI 호출 실패 시 진단용 로그 (best-effort, 실패해도 무시)
@@ -117,6 +119,20 @@ async function logClientError(characterId: string, provider: string, message: st
   try {
     await supabase.from('client_error_log').insert({ character_id: characterId, provider, error_message: message.slice(0, 500) });
   } catch { /* 로깅 실패는 무시 */ }
+}
+
+// Supabase insert 재시도 — 네트워크 에러로 insert가 조용히 실패하면
+// (대화 한쪽만 저장돼) 다음 fetch에서 메시지가 사라진 것처럼 보임 → 재시도 + 최종 실패 시 로깅
+async function insertWithRetry(table: string, row: Record<string, unknown>, retries = 2): Promise<boolean> {
+  for (let attempt = 0; ; attempt++) {
+    const { error } = await supabase.from(table).insert(row);
+    if (!error) return true;
+    if (attempt >= retries) {
+      void logClientError(String(row['character_id'] ?? ''), `supabase:${table}`, error.message);
+      return false;
+    }
+    await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+  }
 }
 
 // 모바일 네트워크 전환(wifi↔LTE) 등으로 인한 간헐적 "Failed to fetch" 대응
@@ -490,7 +506,7 @@ export async function sendGroupMessageDirect(
   const userName     = userIdentity?.name || '성민';
 
   // 유저 메시지 먼저 저장
-  await supabase.from('group_messages').insert({
+  await insertWithRetry('group_messages', {
     room_id: roomId,
     character_id: 'user',
     character_name: userName,
@@ -547,7 +563,7 @@ export async function sendGroupMessageDirect(
 
     // UI에 즉시 표시 + DB 저장
     onResponse?.(response);
-    await supabase.from('group_messages').insert({
+    await insertWithRetry('group_messages', {
       room_id: roomId,
       character_id: char.id,
       character_name: char.name,
