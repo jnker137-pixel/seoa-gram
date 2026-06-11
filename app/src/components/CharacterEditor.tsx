@@ -22,7 +22,7 @@ const DEFAULT_MODELS: Record<ApiProvider, string> = {
 
 const MODEL_OPTIONS: Record<string, string[]> = {
   claude: ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-opus-4-5-20251101'],
-  gemini: ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+  gemini: ['gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
   deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro'],
   grok: ['grok-4.3', 'grok-4.20'],
   openai: ['gpt-5.5', 'gpt-5.4-mini', 'gpt-5.4-nano'],
