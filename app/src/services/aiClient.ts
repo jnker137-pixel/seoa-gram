@@ -76,11 +76,13 @@ export async function sendMessageDirect(
   const reply = provider === 'deepseek' ? cleanRoleplay(raw) : raw;
 
   // 대화 로그는 재시도까지 기다려서 저장 — fire-and-forget이면 네트워크 에러 시
-  // 한쪽만 저장되어 다음 fetch에서 메시지가 사라진 것처럼 보임
-  await Promise.all([
-    saveConversationLog(character.id, 'user', userMessage),
-    saveConversationLog(character.id, 'assistant', reply),
-  ]);
+  // 한쪽만 저장되어 다음 fetch에서 메시지가 사라진 것처럼 보임.
+  // user → assistant 순서로 순차 저장 (created_at은 DB가 INSERT 시점에 자동 부여하므로
+  // Promise.all로 동시 저장하면 네트워크 경합에 따라 순서가 뒤바뀔 수 있음 — 그러면
+  // 방을 전환했다가 돌아올 때 fetchMessages가 created_at 순으로 재정렬하면서
+  // 답변이 질문보다 앞에 표시되는 버그로 이어짐)
+  await saveConversationLog(character.id, 'user', userMessage);
+  await saveConversationLog(character.id, 'assistant', reply);
   void updateL1Memory(character.id, context, recentMsgs, userMessage, reply);
 
   return reply;
