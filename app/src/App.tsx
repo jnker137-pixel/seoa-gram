@@ -227,7 +227,7 @@ export default function App() {
     if (activeId) localStorage.setItem('companions_last_char', activeId);
   }, [activeId]);
 
-  // 선톡 실시간 수신 — conversation_log에 assistant 메시지 INSERT 시 즉시 반영
+  // 선톡/브리핑 실시간 수신 — conversation_log에 assistant 메시지 INSERT 시 즉시 반영
   useEffect(() => {
     const channel = supabase
       .channel('proactive-inbox')
@@ -238,10 +238,12 @@ export default function App() {
         filter: 'role=eq.assistant',
       }, (payload) => {
         const raw = payload.new as { id: number; character_id: string; role: 'assistant'; content: string; created_at: string };
-        if (!raw.content?.startsWith('[선톡]')) return;
+        const isProactive = raw.content?.startsWith('[선톡]');
+        const isBriefing = raw.content?.startsWith('[아침 브리핑]') || raw.content?.startsWith('[저녁 브리핑]');
+        if (!isProactive && !isBriefing) return;
         const msg: Message = {
           ...raw,
-          content: raw.content.replace(/^\[선톡\]\s*/, ''),
+          content: isProactive ? raw.content.replace(/^\[선톡\]\s*/, '') : raw.content,
         };
         setMessagesByChar((prev) => {
           const existing = prev[raw.character_id] ?? [];

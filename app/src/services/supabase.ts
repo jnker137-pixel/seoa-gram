@@ -39,17 +39,6 @@ export async function fetchMessages(
   characterId: string,
   limit = 30
 ): Promise<Message[]> {
-  // 서아는 텔레그램과 공유하는 prism_conversation_log 사용
-  if (characterId === 'seoa') {
-    const { data, error } = await supabase
-      .from('prism_conversation_log')
-      .select('id, role, content, created_at')
-      .order('created_at', { ascending: false })
-      .limit(limit);
-    if (error) throw error;
-    return (data ?? []).reverse().map((r) => ({ ...r, character_id: 'seoa' })) as Message[];
-  }
-
   const { data, error } = await supabase
     .from('conversation_log')
     .select('*')
