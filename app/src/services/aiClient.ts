@@ -34,12 +34,14 @@ export async function sendMessageDirect(
   character: Character,
   userMessage: string
 ): Promise<string> {
-  const [userIdentity, context, recentMsgs, embedding] = await Promise.all([
+  const [userIdentity, context, recentMsgs, embedding, freshCharacter] = await Promise.all([
     fetchUserIdentity(),
     fetchCharacterContext(character.id),
     fetchRecentMessages(character.id),
     embedText(userMessage),
+    withFreshConfig(character),
   ]);
+  character = freshCharacter;
 
   const episodes = embedding ? await fetchEpisodic(character.id, embedding) : [];
   const systemPrompt = buildSystemPrompt(character, userIdentity, context, episodes);
@@ -97,6 +99,18 @@ async function fetchUserIdentity(): Promise<UserProfile | null> {
 async function fetchCharacterContext(characterId: string): Promise<CharacterContext | null> {
   const { data } = await supabase.from('character_context').select('*').eq('character_id', characterId).maybeSingle();
   return data;
+}
+
+// 1:1 채팅의 character 객체는 앱 마운트 시 캐싱된 React state라 provider/model이
+// DB와 어긋날 수 있음 (성민이 캐릭터 설정을 바꿔도 세션 재시작 전까지 반영 안 됨).
+// 호출 직전에 DB 값으로 덮어써서 항상 최신 설정으로 라우팅.
+async function withFreshConfig(character: Character): Promise<Character> {
+  const { data } = await supabase
+    .from('characters')
+    .select('api_provider, model, system_prompt, tools_enabled')
+    .eq('id', character.id)
+    .maybeSingle();
+  return data ? { ...character, ...data } : character;
 }
 
 async function fetchRecentMessages(characterId: string): Promise<ChatMessage[]> {
